@@ -9,7 +9,9 @@ from llmfe import config as config_lib
 from llmfe import evaluator
 from llmfe import buffer
 from llmfe import sampler
+import wandb
 from llmfe import profile
+import dataclasses
 
 
 def _extract_function_names(specification: str) -> Tuple[str, str]:
@@ -50,6 +52,13 @@ def main(
         max_sample_nums: the maximum samples nums from LLM. 'None' refers to no stop.
     """
     function_to_evolve, function_to_run = _extract_function_names(specification)
+
+    # Initialize Weights & Biases
+    wandb.init(
+        project="llmfe-feature-engineering",
+        config=dataclasses.asdict(config),
+        name=f"{kwargs.get('log_dir', 'run')}"
+    )
     template = code_manipulation.text_to_program(specification)
     database = buffer.ExperienceBuffer(config.experience_buffer, template, function_to_evolve, meta_data)
 
@@ -58,7 +67,12 @@ def main(
     if log_dir is None:
         profiler = None
     else:
-        profiler = profile.Profiler(log_dir)
+        profiler = profile.Profiler(log_dir=log_dir,
+                                    wandb_enable=True,
+                                    wandb_project = "llmfe-feature-engineering",
+                                    wandb_run_name = kwargs.get("run_name"),
+                                    split_id=kwargs.get("split_id"),
+                                    base_step=kwargs.get("base_step", 0))
 
     evaluators = []
     for _ in range(config.num_evaluators):
@@ -87,4 +101,4 @@ def main(
     # sampler enters an infinite loop, without parallelization only the first
     # sampler will do any work.
     for s in samplers:
-        s.sample(profiler=profiler)
+        s.sample(profiler=profiler, **kwargs)

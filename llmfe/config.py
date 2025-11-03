@@ -22,7 +22,7 @@ class ExperienceBufferConfig:
     """
     functions_per_prompt: int = 2
     num_islands: int = 3
-    reset_period: int = 4 * 60 * 60
+    reset_period: int = 2 * 60  # originaly 4*60*60
     cluster_sampling_temperature_init: float = 0.1
     cluster_sampling_temperature_period: int = 30_000
 

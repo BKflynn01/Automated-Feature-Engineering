@@ -15,6 +15,7 @@ import os
 import pandas as pd
 import scipy
 import sys
+import wandb
 
 from llmfe import code_manipulation
 from llmfe import config as config_lib
@@ -97,6 +98,27 @@ class ExperienceBuffer:
                 [None] * config.num_islands)
 
         self._last_reset_time: float = time.time()
+        try:
+            self._pre_reseed_table = wandb.Table(
+                columns=["global_step", "island_id", "num_clusters", "mean_score", "variance", "best_score"],
+                log_mode="MUTABLE"
+            )
+        except Exception:
+            self._pre_reseed_table = None
+        try:
+            self._best_update_table = wandb.Table(
+                columns=["island_id", "updated_score", "global_step"],
+                log_mode="MUTABLE"
+            )
+        except Exception:
+            self._best_update_table = None
+        try:
+            self._reseed_table = wandb.Table(
+                columns=["global_step", "island_id_updated", "island_id_seed", "seed_score"],
+                log_mode="MUTABLE"
+            )
+        except Exception:
+            self._reseed_table = None
 
 
     def get_prompt(self) -> Prompt:
@@ -123,6 +145,27 @@ class ExperienceBuffer:
             self._best_program_per_island[island_id] = program
             self._best_scores_per_test_per_island[island_id] = scores_per_test
             self._best_score_per_island[island_id] = score
+            
+            # Log the new best score for the island to W&B
+            global_sample_nums = kwargs.get('global_sample_nums')
+            if global_sample_nums is not None:
+                wandb.log({
+                    f"island_{island_id}_best_score": score,
+                }, step=global_sample_nums)
+                if self._best_update_table is not None:
+                    try:
+                        self._best_update_table.add_data(
+                            int(island_id),
+                            float(score),
+                            int(global_sample_nums),
+                        )
+                        wandb.log(
+                            {"island_updates/best_scores": self._best_update_table},
+                            step=global_sample_nums
+                        )
+                    except Exception:
+                        pass
+            
             logging.info('Best score of island %d increased to %s', island_id, score)
 
         profiler: profile.Profiler = kwargs.get('profiler', None)
@@ -136,7 +179,12 @@ class ExperienceBuffer:
             program.global_sample_nums = global_sample_nums
             program.sample_time = sample_time
             program.evaluate_time = evaluate_time
-            profiler.register_function(program)
+            # Keep prompt link even when fail
+            program.prompt_id = kwargs.get('prompt_id', None)
+            program.version_generated = kwargs.get('version_generated', None)
+            program.head_type = kwargs.get('head_type', None)
+            profiler.register_function(program, island_id=island_id, scores_per_test=scores_per_test)
+            
 
 
     def register_program(
@@ -156,12 +204,42 @@ class ExperienceBuffer:
             self._register_program_in_island(program, input_data, output_data, island_id, scores_per_test, **kwargs)
 
         # Check island reset
+        current_step = kwargs.get('global_sample_nums')
         if time.time() - self._last_reset_time > self._config.reset_period:
+            if self._pre_reseed_table is not None and current_step is not None:
+                self._log_pre_reseed_metrics(global_step=current_step)
             self._last_reset_time = time.time()
-            self.reset_islands()
+            self.reset_islands(global_step=current_step)
+
+    def _log_pre_reseed_metrics(self, *, global_step: int) -> None:
+        if self._pre_reseed_table is None:
+            return
+        for island_id, island in enumerate(self._islands):
+            cluster_scores = [cluster.score for cluster in island._clusters.values()]
+            num_clusters = len(cluster_scores)
+            if num_clusters > 0:
+                mean_score = float(np.mean(cluster_scores))
+                variance = float(np.var(cluster_scores))
+            else:
+                mean_score = None
+                variance = None
+            best_score = self._best_score_per_island[island_id]
+            best_score = float(best_score) if np.isfinite(best_score) else None
+            self._pre_reseed_table.add_data(
+                int(global_step),
+                int(island_id),
+                int(num_clusters),
+                mean_score,
+                variance,
+                best_score
+            )
+        wandb.log(
+            {"island_updates/pre_reseed_metrics": self._pre_reseed_table},
+            step=global_step
+        )
 
 
-    def reset_islands(self) -> None:
+    def reset_islands(self, global_step: int | None = None) -> None:
         """Resets the weaker half of islands."""
         # Sort best scores after adding minor noise to break ties.
         indices_sorted_by_score: np.ndarray = np.argsort(
@@ -181,8 +259,32 @@ class ExperienceBuffer:
             self._best_score_per_island[island_id] = -float('inf')
             founder_island_id = np.random.choice(keep_islands_ids)
             founder = self._best_program_per_island[founder_island_id]
-            founder_scores = self._best_scores_per_test_per_island[founder_island_id]
-            self._register_program_in_island(founder, None, None, island_id, founder_scores)
+            founder_scores = self._best_scores_per_test_per_island[founder_island_id] 
+            if founder is None or founder_scores is None:
+                continue
+            self._register_program_in_island(
+                founder,
+                None,
+                None,
+                island_id,
+                founder_scores,
+                global_sample_nums=global_step
+            )
+            if self._reseed_table is not None and global_step is not None and founder is not None:
+                seed_score = self._best_score_per_island[island_id]
+                try:
+                    self._reseed_table.add_data(
+                        int(global_step),
+                        int(island_id),
+                        int(founder_island_id),
+                        float(seed_score) if seed_score is not None and np.isfinite(seed_score) else None
+                    )
+                    wandb.log(
+                        {"island_updates/reseed": self._reseed_table},
+                        step=global_step
+                    )
+                except Exception:
+                    pass
 
 
 class Island:
@@ -373,7 +475,7 @@ class Cluster:
         self._programs: list[code_manipulation.Function] = [implementation]
         self._lengths: list[int] = [len(str(implementation))]
         self._data_input : list[pd.DataFrame] = [data_input]
-        self._data_output : list[array] = [data_output]
+        self._data_output : list[np.array] = [data_output]
 
     @property
     def score(self) -> float:

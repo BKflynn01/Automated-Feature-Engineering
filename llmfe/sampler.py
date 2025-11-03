@@ -13,7 +13,8 @@ import requests
 import json
 import http.client
 import os
-
+import uuid
+import datetime
 
 
 class LLM(ABC):
@@ -57,12 +58,49 @@ class Sampler:
     
     def sample(self, **kwargs):
         """ Continuously gets prompts, samples programs, sends them for analysis. """
+        profiler = kwargs.get('profiler', None)
         while True:
             # stop the search process if hit global max sample nums
             if self._max_sample_nums//5 and self.__class__._global_samples_nums >= self._max_sample_nums//5:
                 break
             
             prompt = self._database.get_prompt()
+            
+            prompt_id = str(uuid.uuid4())
+            head_type = "operatons" if "<Operators>" in prompt.code else "domain"
+            if profiler:
+                profiler.log_prompt(
+                    prompt_id = prompt_id,
+                    island_id = prompt.island_id,
+                    version_generated = prompt.version_generated,
+                    prompt_code = prompt.code,
+                    num_samples = self._samples_per_prompt,
+                    step_hint = self._get_global_sample_nums(),
+                    head_type = "operations" if "<Operators>" in prompt.code else "domain"
+                )
+            # DELETE
+            
+            os.makedirs("logs", exist_ok=True)
+
+            head_type = "operations" if "<Operators>" in prompt.code else "domain"
+
+            # Append to CSV
+            with open("logs/run_log.csv", "a", encoding="utf-8") as f:
+                f.write(f"\n=====================NEW=====================\nDATE:{datetime.datetime.now().isoformat()}\nPROMPT TYPE:{head_type}\n")
+
+            # Dump the full prompt to a text log 
+            with open("logs/prompts.log.txt", "a", encoding="utf-8") as f:
+                f.write("\n================ PROMPT ================\n")
+                f.write(f"ts: {datetime.datetime.now().isoformat()}\n")
+                #f.write(f"island_id: {prompt.island_id} | head_type: {head_type}  \n")
+                f.write("----------------------------------------\n")
+                f.write(prompt.code if isinstance(prompt.code, str) else str(prompt.code))
+                f.write("\n========================================\n")
+            
+            
+            
+            # END OF DELETE
+            
             reset_time = time.time()
             samples = self._llm.draw_samples(prompt.code,self.config)
             sample_time = (time.time() - reset_time) / self._samples_per_prompt
@@ -75,13 +113,16 @@ class Sampler:
                 chosen_evaluator: evaluator.Evaluator = np.random.choice(self._evaluators)
                 chosen_evaluator.analyse(
                     sample,
-                    prompt.island_id,
-                    prompt.data_input,
-                    prompt.data_output,
-                    prompt.version_generated,
-                    **kwargs,
+                    island_id=prompt.island_id,
+                    data_input=prompt.data_input,
+                    data_output=prompt.data_output,
+                    version_generated=prompt.version_generated,
                     global_sample_nums=cur_global_sample_nums,
-                    sample_time=sample_time
+                    sample_time=sample_time,
+                    profiler=kwargs.get('profiler', None),
+                    prompt_id=prompt_id, #altered
+                    head_type = head_type,
+                    prompt_code=prompt.code
                 )
 
     def _get_global_sample_nums(self) -> int:
@@ -203,6 +244,13 @@ class LocalLLM(LLM):
         all_samples = []
         prompt = '\n'.join([self._instruction_prompt, prompt])
         
+        #DLETE AFTER
+        os.makedirs("./logs/prompt_dumps", exist_ok=True)
+        with open("./logs/prompt_dumps/full_prompt_log.txt", "a", encoding="utf-8") as f:
+            f.write("\n====================== NEW PROMPT ======================\n")
+            f.write(prompt if isinstance(prompt, str) else str(prompt))
+            f.write("\n========================================================\n\n")
+        
         for _ in range(self._samples_per_prompt):
             while True:
                 try:
@@ -264,4 +312,3 @@ class LocalLLM(LLM):
             response = response.json()["content"]
             
             return response if self._batch_inference else response[0]
-
