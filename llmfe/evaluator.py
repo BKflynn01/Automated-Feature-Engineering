@@ -6,7 +6,7 @@ import ast
 import time
 from collections.abc import Sequence
 import copy
-from typing import Any, Type
+from typing import Any, Type, Sequence
 import profile
 import pandas as pd
 
@@ -216,7 +216,8 @@ class Evaluator:
             function_to_run: str, 
             inputs: Sequence[Any],
             timeout_seconds: int = 30,
-            sandbox_class: Type[Sandbox] = Sandbox
+            sandbox_class: Type[Sandbox] = Sandbox,
+            logger: Any = None
     ):
         self._database = database
         self._template = template
@@ -225,6 +226,7 @@ class Evaluator:
         self._inputs = inputs
         self._timeout_seconds = timeout_seconds
         self._sandbox = sandbox_class()
+        self._logger = logger
 
     def analyse(
             self,
@@ -239,7 +241,7 @@ class Evaluator:
         new_function, program = _sample_to_program(
             sample, version_generated, self._template, self._function_to_evolve)
         scores_per_test = {}
-        time_reset = time.time()
+        time_reset = time.perf_counter()
         self._inputs['data']['inputs'] = data_input
         self._inputs['data']['outputs'] = data_output
         for current_input in self._inputs:
@@ -255,8 +257,19 @@ class Evaluator:
                 input_data = test_output[1]
                 output_data = test_output[2]
 
-        evaluate_time = time.time() - time_reset
-
+        evaluate_time = time.perf_counter() - time_reset
+        
+        # To facilitate logging
+        if self._logger:
+            # Determine score to log. Possible it is none if program failed
+            logged_score = None
+            if scores_per_test:
+                logged_score = list(scores_per_test.values())[0]
+            self._logger.log_program(
+                            program=sample,
+                            score=logged_score,
+                            prompt_id=kwargs.get('prompt_id')
+            ) 
         if scores_per_test:
             self._database.register_program(
                 new_function,

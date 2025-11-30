@@ -1,0 +1,11 @@
+###
+<Execution_Rules>
+1. Analyze the <Code_Context> below.
+2. **Experiment.** Mix and match the <Concepts> above to engineer something new.
+3. Docstring format: `Thought: [Why] | New Feature: [Name] = [Logic]`
+4. Output ONE Python code block only.
+   - The last line must be: `return df_output`
+   - Add `assert "df_output" in locals()` before the return.
+
+###
+<Code_Context>

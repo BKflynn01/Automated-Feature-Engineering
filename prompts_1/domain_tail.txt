@@ -1,0 +1,16 @@
+###
+<Refinement_Strategy>
+You are about to view `<Sample_Programs>` and a skeleton.
+1.**Review:** Look at the previous thoughts in <Sample_Programs>. Did they capture the "Physics" of the problem, or just do random math?
+2.**Evolve:** In the skeleton, implement features that represent stronger real-world signals.
+3.**Docstrings:** You MUST use the format: `Thought: [Physical/Semantic Reasoning] | New Feature: [Name] = [Logic]`.
+
+###
+<Execution_Rules>
+-Output ONE Python code block ONLY.
+-The function's last non-empty line MUST be exactly: `return df_output`.
+-Add `assert "df_output" in locals()` immediately before the return.
+
+###
+<Sample_Programs>
+Reference the following code history to build your improved version:

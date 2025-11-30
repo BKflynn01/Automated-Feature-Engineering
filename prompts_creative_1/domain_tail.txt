@@ -1,0 +1,11 @@
+###
+<Execution_Rules>
+1. Analyze the <Code_Context> below.
+2. **Be bold.** Generate new features that might help solve the <Task>.
+3. Docstring format: `Thought: [Why] | New Feature: [Name] = [Logic]`
+4. Output ONE Python code block only.
+   - The last line must be: `return df_output`
+
+
+###
+<Code_Context>

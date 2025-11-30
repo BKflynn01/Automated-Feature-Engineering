@@ -150,7 +150,7 @@ class ExperienceBuffer:
             global_sample_nums = kwargs.get('global_sample_nums')
             if global_sample_nums is not None:
                 wandb.log({
-                    f"island_{island_id}_best_score": score,
+                    f"Island/Island_{island_id}_Best_Score": score,
                 }, step=global_sample_nums)
                 if self._best_update_table is not None:
                     try:
@@ -160,7 +160,7 @@ class ExperienceBuffer:
                             int(global_sample_nums),
                         )
                         wandb.log(
-                            {"island_updates/best_scores": self._best_update_table},
+                            {"Island_Updates/Best_Scores": self._best_update_table},
                             step=global_sample_nums
                         )
                     except Exception:
@@ -212,6 +212,9 @@ class ExperienceBuffer:
             self.reset_islands(global_step=current_step)
 
     def _log_pre_reseed_metrics(self, *, global_step: int) -> None:
+        '''
+        Log the pre ressed table to wandb
+        '''
         if self._pre_reseed_table is None:
             return
         for island_id, island in enumerate(self._islands):
@@ -234,11 +237,28 @@ class ExperienceBuffer:
                 best_score
             )
         wandb.log(
-            {"island_updates/pre_reseed_metrics": self._pre_reseed_table},
+            {"Island_Updates/Pre_Reseed": self._pre_reseed_table},
             step=global_step
         )
 
-
+    def _log_reseed_metrics(self, *, global_step: int) -> None:
+        '''
+        Log the reseed table to wandb
+        '''
+        if self._reseed_table is None:
+            return 
+        
+        try: 
+            wandb.log(
+                {"Island_Updates/Reseed": self._reseed_table},
+                step=global_step 
+            )
+            
+        except Exception as e:
+            print("--- WANDB LOGGING FAILED FOR Reseed ---")
+            print(f"ERROR: {e}")
+            pass
+            
     def reset_islands(self, global_step: int | None = None) -> None:
         """Resets the weaker half of islands."""
         # Sort best scores after adding minor noise to break ties.
@@ -248,6 +268,9 @@ class ExperienceBuffer:
         num_islands_to_reset = self._config.num_islands // 2
         reset_islands_ids = indices_sorted_by_score[:num_islands_to_reset]
         keep_islands_ids = indices_sorted_by_score[num_islands_to_reset:]
+        
+        add_data_to_reseed_table = False
+        
         for island_id in reset_islands_ids:
             self._islands[island_id] = Island(
                 self._template,
@@ -272,6 +295,7 @@ class ExperienceBuffer:
             )
             if self._reseed_table is not None and global_step is not None and founder is not None:
                 seed_score = self._best_score_per_island[island_id]
+                print(f"Island Reset: Island {reset_islands_ids}, Score: {seed_score}")
                 try:
                     self._reseed_table.add_data(
                         int(global_step),
@@ -279,13 +303,14 @@ class ExperienceBuffer:
                         int(founder_island_id),
                         float(seed_score) if seed_score is not None and np.isfinite(seed_score) else None
                     )
-                    wandb.log(
-                        {"island_updates/reseed": self._reseed_table},
-                        step=global_step
-                    )
-                except Exception:
-                    pass
-
+                    add_data_to_reseed_table = True
+                except Exception as e:
+                    print(f"--- WANDB DATA ADD FAILED FOR RESEED ---")
+                    print(f"ERROR: {e}")
+                    print(f"DATA: global_step={global_step}, island_id={island_id}, founder_id={founder_island_id}, seed_score={seed_score}")
+                    
+        if add_data_to_reseed_table and global_step is not None:
+            self._log_reseed_metrics(global_step=global_step )
 
 class Island:
     """A sub-population of the program skeleton experience buffer."""
@@ -353,27 +378,40 @@ class Island:
 
         indices = np.argsort(scores)
         sorted_implementations = [implementations[i] for i in indices]
+        sorted_scores = [scores[i] for i in indices]
         version_generated = len(sorted_implementations) + 1
-        return self._generate_prompt(sorted_implementations), version_generated, sorted_implementations[-1].data_input, sorted_implementations[-1].data_output
+        prompt_str = self._generate_prompt(sorted_implementations, sorted_scores)
+        return prompt_str, version_generated, sorted_implementations[-1].data_input, sorted_implementations[-1].data_output
 
 
     def _generate_prompt(
             self,
-            implementations: Sequence[code_manipulation.Function]) -> str:
+            implementations: Sequence[code_manipulation.Function],
+            scores: Sequence[float]) -> str:
         """ Create a prompt containing a sequence of function `implementations`."""
         implementations = copy.deepcopy(implementations)
         # Format the names and docstrings of functions to be included in the prompt.
         versioned_functions: list[code_manipulation.Function] = []
         input_data = []
         output_data = []
-        for i, implementation in enumerate(implementations):
+        for i, (implementation,score) in enumerate(zip(implementations, scores)):
             new_function_name = f'{self._function_to_evolve}_v{i}'
             implementation.name = new_function_name
+            score_abs = abs(score)
+            score_doc = f"\n\nThis program scored: {score_abs:.4f}"
+            original_docstring = implementation.docstring or "" # safety feature for original func v0
+            
             # Update the docstring for all subsequent functions after `_v0`.
             if i >= 1:
                 implementation.docstring = (
+                    f'{score_doc}\n'
                     f'Improved version of `{self._function_to_evolve}_v{i - 1}`.'
                     )
+            else: 
+                implementation.docstring = (
+                    f'{score_doc}\n'
+                    f'{original_docstring}'
+                )
             # If the function is recursive, replace calls to itself with its new name.
             input_data.append(implementation.data_input)
             output_data.append(implementation.data_output)
@@ -386,10 +424,11 @@ class Island:
         # Create header of new function to be completed
         next_version = len(implementations)
         new_function_name = f'{self._function_to_evolve}_v{next_version}'
+        
         header = dataclasses.replace(
             implementations[-1],
             name=new_function_name,
-            body='',
+            body='    <Replace with improved programm>\n    return df_output',
             docstring=('Improved version of '
                        f'`{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features.'),
         )
@@ -407,11 +446,9 @@ class Island:
         
         df_output = pd.DataFrame(output_data[-1], columns=['Result'])
         df_current = df_input.join(df_output)
-        df_current = df_current.sample(frac=1).head(10)
+        df_current = df_current.sample(frac=1).head(10) # changed from 10 
         
         total_column_list = [df_current.columns.tolist()]
-        categorical_indicator = [is_categorical(df_current.iloc[:, i]) for i in range(df_current.shape[1])]
-        
         for selected_column in total_column_list:
             for icl_idx, icl_row in df_current.iterrows():
                 icl_row = icl_row[selected_column]
@@ -419,23 +456,42 @@ class Island:
                 in_context_desc += "\n"
 
             feature_name_list = []
-            sel_cat_idx = [df_current.columns.tolist().index(col_name) for col_name in selected_column]
-            is_cat_sel = np.array(categorical_indicator)[sel_cat_idx]
-            
-            for cidx, cname in enumerate(selected_column):
+            for cname in selected_column:
                 if cname == "Result":
                     break
-                if is_cat_sel[cidx] == True:
-                    clist = df_current[cname].unique().tolist()
-                    clist = [str(c) for c in clist]
+                entry = self._meta_data.get(cname, {})
+                description = ""
+                type_hint = None
+                if isinstance(entry, dict):
+                    description = entry.get("description", "") or ""
+                    if entry.get("context"):
+                        description = f"{description} ({entry['context']})" if description else entry["context"]
+                    type_hint = entry.get("type")
+                elif isinstance(entry, str):
+                    description = entry
+                if not description:
+                    description = cname.replace('_', ' ')
 
-                    clist_str = ", ".join(clist)
-                    desc = self._meta_data[cname] if cname in self._meta_data.keys() else ""
-                    feature_name_list.append(f"- {cname}: {desc} (categorical variable with categories [{clist_str}])")
+                if type_hint:
+                    normalized_type = str(type_hint).lower()
+                    if normalized_type in {"categorical", "binary", "ordinal"}:
+                        is_cat_feature = True
+                    elif normalized_type in {"continuous", "numeric", "numerical"}:
+                        is_cat_feature = False
+                    else:
+                        is_cat_feature = is_categorical(df_current[cname])
                 else:
-                    min_val, max_val = input_data[-1][cname].min(), input_data[-1][cname].max()
-                    desc = self._meta_data[cname] if cname in self._meta_data.keys() else cname.replace('_', ' ')
-                    feature_name_list.append(f"- {cname}: {desc} (numerical variable within range [{min_val}, {max_val}])")
+                    is_cat_feature = is_categorical(df_current[cname])
+
+                if is_cat_feature:
+                    clist = df_input[cname].dropna().unique().tolist()
+                    clist = [str(c) for c in clist]
+                    clist_str = ", ".join(clist)
+                    feature_name_list.append(f"- {cname}: {description} (categorical variable with categories [{clist_str}])")
+                else:
+                    min_val = input_data[-1][cname].min()
+                    max_val = input_data[-1][cname].max()
+                    feature_name_list.append(f"- {cname}: {description} (numerical variable within range [{min_val}, {max_val}])")
             
             feature_desc = "\n".join(feature_name_list)
 

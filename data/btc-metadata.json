@@ -1,0 +1,63 @@
+{
+  "continuous_features": [
+    {
+      "name": "close",
+      "type": "continuous",
+      "description": "Bitcoin closing price in USD.",
+      "context": "The final trading price at the end of the day. This is the primary price metric and often used as the target for prediction models."
+    },
+    {
+      "name": "open",
+      "type": "continuous",
+      "description": "Bitcoin opening price in USD.",
+      "context": "The first trading price at the start of the day. Useful for calculating daily range and gap analysis."
+    },
+    {
+      "name": "high",
+      "type": "continuous",
+      "description": "Bitcoin highest price in USD during the day.",
+      "context": "The maximum price reached during the trading day. Used to calculate volatility and trading ranges."
+    },
+    {
+      "name": "low",
+      "type": "continuous",
+      "description": "Bitcoin lowest price in USD during the day.",
+      "context": "The minimum price reached during the trading day. Used to calculate volatility and trading ranges."
+    },
+    {
+      "name": "volume",
+      "type": "continuous",
+      "description": "Trading volume for Bitcoin.",
+      "context": "The total amount of Bitcoin traded during the day. May include notation like 'K' (thousands), 'M' (millions), or 'B' (billions). High volume often indicates strong conviction in price movements."
+    },
+    {
+      "name": "fng_value",
+      "type": "continuous",
+      "description": "Fear and Greed Index value.",
+      "context": "Ranges from 0 to 100, where 0-24 indicates 'Extreme Fear', 25-49 'Fear', 50 'Neutral', 51-75 'Greed', and 76-100 'Extreme Greed'. This sentiment indicator reflects market psychology and can be a contrarian signal."
+    },
+    {
+      "name": "change_percent",
+      "type": "continuous",
+      "description": "Daily percentage change in Bitcoin price.",
+      "context": "Represents the percentage move of the price for the current day. This indicates the daily momentum and volatility leading up to the prediction target."
+    }
+  ],
+  "categorical_features": [
+    {
+      "name": "fng_classification",
+      "type": "categorical",
+      "description": "Fear and Greed Index classification.",
+      "context": "Text labels: 'Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed'. Categorical representation of the fng_value metric."
+    }
+  ],
+  "temporal_features": [
+    {
+      "name": "date",
+      "type": "datetime",
+      "description": "The date of the observation.",
+      "context": "Daily granularity. Can be used to extract cyclical features like day of week, month, quarter, or year. Bitcoin markets operate 24/7 unlike traditional markets.",
+      "note": "Consider extracting: day_of_week (cyclical), month (cyclical), year, days_since_halving, or proximity to major crypto events."
+    }
+  ]
+}

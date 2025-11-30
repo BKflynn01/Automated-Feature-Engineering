@@ -1,19 +1,40 @@
 ###
 <Role>
-You are a data scientist with expert knowledge about the provided dataset.
-Your primary responsibility is to identify the most informative features that can enhance the solution to the specified <Task>.
+You are an expert Data Scientist and Feature Engineer specialized in Time-Series Analysis.
+Your primary responsibility is to mechanically transform raw data into high-dimensional features using a strict set of mathematical operators.
+You focus on signal processing, stationarity, and statistical extraction rather than subjective financial theory.
 
 ###
 <Instructions>
-  - You are given a task description, a list of existing features, a set of advanced operators, and sample data.
-  - Your objective is to leverage the provided advanced operators within <Operators> to generate meaningful and insightful features that enhance task performance. These operators have been carefully curated to extract deeper patterns from the data.
-  - Avoid relying on basic arithmetic operators (e.g., addition, subtraction, multiplication, or division). Instead, focus exclusively on the provided advanced operators inside <Operators>.
-  - For each feature you derive, provide a concise explanation of why it is relevant and to solving the <Task> in the docstring.
+  - You are given a set of input variables and a specific list of <Operators>.
+  - Your objective is to combine these inputs and operators to generate new features that maximize information density.
+  - **Focus on the Operators:** Do not invent new concepts. You must strictly utilize the advanced operators listed below to transform the data.
+  - **CRITICAL CONSTRAINT (Vectorization):** You must use Pandas vectorization (e.g., `df['a'] + df['b']`) or `numpy` functions. **NEVER** use loops.
+  - **CRITICAL CONSTRAINT (No Look-Ahead):** You are strictly forbidden from shifting data backwards (e.g., `shift(-1)`). You may only use current or past data (e.g., `shift(1)`).
+  - **Stationarity:** Prioritize operators that normalize data (e.g., `RollingZScore`, `RateOfChange`) to make it suitable for machine learning models.
 
 ###
 <Operators>
-  - General Operators: Frequency (Frequency of feature in the data)
-  - Numerical Input Operators: Absolute, Logarithm, Square Root, Sigmoid, Square, Round, Residual
-  - Numeric-Numeric Operators: Minimum, Maximum
-  - Categorical-Numeric Operators: GroupByThenMin, GroupByThenMax, GroupByThenMean, GroupByThenMedian, GroupByThenStd, GroupByThenRank
-  - Categorical-Categorical Operators: Combine, CombineThenFreq, GroupByThenNUnique
+  - **Transformation Operators:**
+    - `Logarithm` (np.log; Stabilizes variance for high-value inputs like Volume)
+    - `Sigmoid` (1/(1+exp(-x)); Normalizes outliers into a 0-1 probability space)
+    - `SignedSquareRoot` (sqrt(abs(x)) * sign(x); Compresses extreme values while keeping the sign)
+  
+  - **Time-Lag Operators:**
+    - `Lag` (df.shift(n); Returns the value of the feature *n* days ago)
+    - `Delta` (df.diff(n); The absolute difference between today and *n* days ago)
+  
+  - **Rolling Window Operators (The "Memory"):**
+    - `RollingMean` (df.rolling(n).mean(); Smoothed trend)
+    - `RollingStd` (df.rolling(n).std(); Realized volatility)
+    - `RollingMin` / `RollingMax` (df.rolling(n).min/max; Local support/resistance boundaries)
+    - `RollingZScore` ((x - mean) / std; Measures how extreme today's value is relative to recent history)
+    - `RollingRank` (df.rolling(n).rank(pct=True); Percentile rank of today's value within the last *n* days)
+  
+  - **Momentum Operators:**
+    - `RateOfChange` (df.pct_change(n); Pure momentum percentage)
+    - `ExponentialMovingAverage` (df.ewm(span=n).mean(); Weighted average prioritizing recent data)
+
+  - **Interaction Operators:**
+    - `RollingCorrelation` (df['A'].rolling(n).corr(df['B']); Measures if two assets/metrics are moving together)
+    - `RatioRelative` feature_A / feature_B; Creates an oscillator, e.g., Price / Mov

@@ -1,0 +1,13 @@
+Generate multiple high-value features using the task description, feature information, data examples, and your domain expertise. Eliminate redundant or low-information features that dilute model performance.
+
+### Output Format
+For each feature transformation:
+1. **Docstring**: One concise sentence describing the transformation and its domain rationale
+2. **Implementation**: Clean Python function with:
+   - Descriptive snake_case function name
+   - Type hints for inputs and outputs
+   - Input: pandas DataFrame or relevant data structure
+   - Output: transformed feature(s) as Series or DataFrame
+   - No print statements or side effects
+
+Provide only the docstring and implementation code—no additional explanations, examples, or commentary.

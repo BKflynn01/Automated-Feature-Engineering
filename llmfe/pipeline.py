@@ -41,6 +41,7 @@ def main(
         meta_data: dict,
         max_sample_nums: int | None,
         class_config: config_lib.ClassConfig,
+        logger: Any = None,
         **kwargs
 ):
     """ Launch a llmfe experiment.
@@ -55,7 +56,7 @@ def main(
 
     # Initialize Weights & Biases
     wandb.init(
-        project="llmfe-feature-engineering",
+        project="llmfe-feature-engineering-btc",
         config=dataclasses.asdict(config),
         name=f"{kwargs.get('log_dir', 'run')}"
     )
@@ -69,7 +70,7 @@ def main(
     else:
         profiler = profile.Profiler(log_dir=log_dir,
                                     wandb_enable=True,
-                                    wandb_project = "llmfe-feature-engineering",
+                                    wandb_project = "llmfe-feature-engineering-btc",
                                     wandb_run_name = kwargs.get("run_name"),
                                     split_id=kwargs.get("split_id"),
                                     base_step=kwargs.get("base_step", 0))
@@ -83,7 +84,8 @@ def main(
             function_to_run,
             inputs,
             timeout_seconds=config.evaluate_timeout_seconds,
-            sandbox_class=class_config.sandbox_class
+            sandbox_class=class_config.sandbox_class,
+            logger=logger
         ))
 
     initial = template.get_function(function_to_evolve).body
@@ -102,3 +104,8 @@ def main(
     # sampler will do any work.
     for s in samplers:
         s.sample(profiler=profiler, **kwargs)
+        
+    if wandb.run is not None: 
+        return wandb.run.id
+        wandb.finish()
+    return None

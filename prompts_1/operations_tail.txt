@@ -1,0 +1,16 @@
+###
+<Refinement_Strategy>
+You are about to view `<Sample_Programs>` and a skeleton.
+1.**Review:** Pay specific attention to the operators used in v0/v1.
+2.**Upgrade:** In the skeleton, replace simple operators with more advanced ones from your <Operators> list.
+3.**Docstrings:** You MUST use the format: `Thought: [Reason for Operator Selection] | New Feature: [Name] = [Formula]`.
+
+###
+<Execution_Rules>
+-Output ONE Python code block ONLY.
+-The function's last non-empty line MUST be exactly: `return df_output`.
+-Add `assert "df_output" in locals()` immediately before the return.
+
+###
+<Sample_Programs>
+Reference the following code history to build your improved version:

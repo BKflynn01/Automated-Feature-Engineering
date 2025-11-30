@@ -1,7 +1,10 @@
-Please generate as many new features as possible using the information from the task, feature descriptions, examples, and your domain understanding of the dataset.  
-Remove any irrelevant, redundant, or less informative features to enhance overall performance.  
+Generate "Alpha Factors" based on the <Domain Heuristics> and remove redundant features.
+Prioritize stationary metrics (e.g., Z-Scores, Log-Returns) over raw prices.
 
-First, describe your new feature transformation and the main steps in a concise, one-sentence docstring.  
-Then, implement it in Python as a function that adheres to the given specifications.  
+First, provide a one-sentence "Alpha Hypothesis" in the docstring explaining the financial rationale.
+Then, implement the `modify_features_v2` function.
 
-Avoid providing any further explanations or additional descriptions.
+**CRITICAL INSTRUCTION**
+1. Verify NO look-ahead bias (e.g., no `shift(-1)`).
+2. Use the score of the following programs as a reference but **never** make up your own score.
+3. Your code must start with df_output = df_input.copy() before any alterations are made

@@ -7,10 +7,12 @@ from typing import List, Dict
 import logging
 import json
 import html
+import wandb
+from wandb.errors import AuthenticationError, CommError
+from requests.exceptions import RequestException
 from llmfe import code_manipulation
 from torch.utils.tensorboard import SummaryWriter
 from llmfe.buffer import _get_signature, _reduce_score
-import wandb
 from wandb import Table, plot
 from collections import defaultdict, Counter
 
@@ -22,7 +24,7 @@ class Profiler:
             pkl_dir: str | None = None,
             max_log_nums: int | None = None,
             wandb_enable: bool = True,
-            wandb_project: str = "llmfe-feature-engineering",
+            wandb_project: str = "llmfe-feature-engineering-btc",
             wandb_run_name: str | None = None,
             wandb_group_name: str | None = None,
             split_id: int | None = None,
@@ -142,7 +144,8 @@ class Profiler:
                    prompt_code: str, 
                    num_samples: int, 
                    step_hint: int | None = None,
-                   head_type: str | None = None):
+                   head_type: str | None = None,
+                   instruction_prompt: str | None = None):
         # Log to wandb prompt table
         if step_hint is None: 
             _step_int = 0
@@ -159,8 +162,11 @@ class Profiler:
             int(num_samples),
         )
         if self._use_wandb:
-            _prev = prompt_code.replace("<", "&lt;").replace(">","&gt;")
-            wandb.log({"prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step)
+            combined_prompt = prompt_code
+            if instruction_prompt:
+                combined_prompt = "\n".join([instruction_prompt, prompt_code])
+            _prev = combined_prompt.replace("<", "&lt;").replace(">","&gt;")
+            wandb.log({"Prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step)
     def _log_wandb(self, 
                    *,
                    programs: code_manipulation.Function,
@@ -197,15 +203,19 @@ class Profiler:
         log_data = {
             "global_step": global_step,
             "split_id": self._split_id,
-            "metrics/score": score,
-            "metrics/sample_time": sample_time,
-            "metrics/evaluate_time": evaluate_time,
-            "metrics/num_samples": self._num_samples,
-            "cluster/reduced_score": cluster_reduced_score,
-            **({f"islands/{island_id}/score": score} if island_id is not None and score is not None else {}),
+            "Run_Metrics/score": score,
+            "Run_Metrics/Sample_time": sample_time,
+            "Run_Metrics/Evaluate_Time": evaluate_time,
+            "Run_Metrics/Number_Samples": self._num_samples,
+            "Clusters/Cluster_Signatures": cluster_reduced_score,
+            **({f"Island/{island_id}_score": score} if island_id is not None and score is not None else {}),
         }
         
-        wandb.log(log_data, step=global_step)
+        try:
+            wandb.log(log_data, step=global_step)
+        except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
+            logging.warning("W&B metric log failed, skipping this step: %s", exc)
+            return
         if self._use_wandb and island_id is not None:
             self._log_program_media(
                 island_id=island_id,
@@ -230,9 +240,12 @@ class Profiler:
         )    
         
         if self._use_wandb and island_id is not None and signature_value is not None:
-            self._log_cluster_histogram(island_id=island_id,
-                                        signature_value=signature_value,
-                                        step=global_step)
+            try:
+                self._log_cluster_histogram(island_id=island_id,
+                                            signature_value=signature_value,
+                                            step=global_step)
+            except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
+                logging.warning("W&B histogram log failed: %s", exc)
 
     def _log_cluster_histogram(self, *, island_id: int, signature_value: float, step: int) -> None:
         counter = self._cluster_counts[island_id]
@@ -246,7 +259,10 @@ class Profiler:
             "count",
             title=f"Island {island_id} Cluster Histogram"
         )
-        wandb.log({f"Histograms/{island_id}/cluster_histogram": chart}, step=step)
+        try:
+            wandb.log({f"Clusters/{island_id}/Histogram": chart}, step=step)
+        except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
+            logging.warning("Failed to log cluster histogram to W&B: %s", exc)
 
     def _log_program_media(self, *, island_id: int, step: int, program_str: str, score: float | None, prompt_id: str | None) -> None:
         escaped_program = html.escape(program_str)
@@ -260,7 +276,10 @@ class Profiler:
             header_items.append(f"Prompt ID: {prompt_id}")
         header_html = "<br/>".join(header_items)
         body = f"<div><strong>{header_html}</strong><pre>{escaped_program}</pre></div>"
-        wandb.log({f"programs/island_{island_id}": wandb.Html(body)}, step=step)
+        try:
+            wandb.log({f"Programs/Island_{island_id}": wandb.Html(body)}, step=step)
+        except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
+            logging.warning("Failed to log program HTML to W&B: %s", exc)
             
     def _write_json(self, programs: code_manipulation.Function, island_id: int | None, scores_per_test: dict | None):
         sample_order = programs.global_sample_nums

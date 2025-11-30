@@ -34,7 +34,7 @@ class LLM(ABC):
 
 class Sampler:
     """ Node that samples program skeleton continuations and sends them for analysis. """
-    _global_samples_nums: int = 1
+    _global_samples_nums: int = 0
 
     def __init__(
             self,
@@ -53,7 +53,7 @@ class Sampler:
         self._llm = llm_class(samples_per_prompt)
         self._max_sample_nums = max_sample_nums
         self.config = config
-        self.__class__._global_samples_nums = 1
+        self.__class__._global_samples_nums = 0
 
     
     def sample(self, **kwargs):
@@ -68,6 +68,7 @@ class Sampler:
             
             prompt_id = str(uuid.uuid4())
             head_type = "operatons" if "<Operators>" in prompt.code else "domain"
+            instruction_prompt = getattr(self._llm, "_instruction_prompt", "")
             if profiler:
                 profiler.log_prompt(
                     prompt_id = prompt_id,
@@ -76,7 +77,8 @@ class Sampler:
                     prompt_code = prompt.code,
                     num_samples = self._samples_per_prompt,
                     step_hint = self._get_global_sample_nums(),
-                    head_type = "operations" if "<Operators>" in prompt.code else "domain"
+                    head_type = "operations" if "<Operators>" in prompt.code else "domain",
+                    instruction_prompt=instruction_prompt
                 )
             # DELETE
             
@@ -173,16 +175,18 @@ def _extract_body(sample: str, config: config_lib.Config) -> str:
         if config.use_api:
             code = ''
             for line in lines[func_body_lineno + 1:]:
-                code += line + '\n'
-        
+                if "This program scored:" not in line:
+                    code += line + '\n'
+         
         # for mixtral
         else:
             code = ''
             indent = '    '
             for line in lines[func_body_lineno + 1:]:
-                if line[:4] != indent:
-                    line = indent + line
-                code += line + '\n'
+                if "This program scored:" not in line:
+                    if line[:4] != indent:
+                        line = indent + line
+                    code += line + '\n'
         
         return code
     
@@ -199,8 +203,53 @@ class LocalLLM(LLM):
         super().__init__(samples_per_prompt)
 
         url = "http://127.0.0.1:5000/completions"
-        instruction_prompt = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
-                             Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs.\n\n")
+        instruction_prompt_o = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
+                             Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs. Each program will be given a score as a reference.\n\n")
+        instruction_prompt_creative_1 = ('''You are an experimental Data Scientist.
+                                Your goal is to maximize model performance by creatively engineering new features.
+                                ###
+                                <Input_Manifest>
+                                1. <Role>: Your objective.
+                                2. <Task>: The prediction problem.
+                                3. <Features>: The dataset columns.
+                                4. <Code_Context>: The code history and the skeleton you must complete.
+                                </Input_Manifest>''')
+        instruction_prompt_1= ('''You are an innovative Data Scientist.
+                            Your goal is to discover novel, high-impact features through creative experimentation.
+
+                            ###
+                            <Input_Manifest>
+                            1. <Role>: Your objective.
+                            2. <Task>: The prediction problem.
+                            3. <Features>: The dataset columns.
+                            4. <Concepts>: The general mathematical concepts you should explore.
+                            5. <Code_Context>: The history and skeleton you must complete.
+                            </Input_Manifest>''')
+        
+        instruction_prompt_1 = ('''
+                            You are an AI assistant specializing in **Automated Feature Engineering**.
+                            Your mission is to maximize the predictive performance of a machine learning model by generating high-quality features.
+                            <Input_Manifest>
+                            You will be provided with the following information blocks, in this strict order:
+                            1.**<Role> & <Objectives>**: Your persona and goals.
+                            2.**<Constraints> and/or <Operators>**: The allowed `pandas`/`numpy` tools.
+                            3.**<Task> & <Data>**: The prediction problem, feature descriptions, and examples.
+                            4.**<Refinement_Strategy>**: The specific instructions for evaluating previous code and evolving it.
+                            **Finally**, you will be presented with the **<Sample_Programs>**, containing the history and the skeleton you must complete.
+                            </Input_Manifest>
+                              ''')
+        
+        instruction_prompt_3 = ("You are an assistant specializing in analyzing data which will be given the following:\n"
+                              "<Role>: how you should behave.\n"
+                              "<Instructions>: your task to complete.\n"
+                              "<Task>: the prediction task to be completed.\n"
+                              "<Features>: description of the features in the dataset.\n"
+                              "<Examples>: subset of the data with features and prediction label.\n"
+                              "Sample programs to reference.\n"
+                              "A starting skeleton for a program you are to complete to improve feature engineering.\n\n")
+        #instruction_prompt = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
+        #                     Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs.\n\n")
+        instruction_prompt = ""
         self._batch_inference = batch_inference
         self._url = url
         self._instruction_prompt = instruction_prompt
@@ -213,7 +262,6 @@ class LocalLLM(LLM):
             return self._draw_samples_api(prompt, config)
         else:
             return self._draw_samples_local(prompt, config)
-
 
     def _draw_samples_local(self, prompt: str, config: config_lib.Config) -> Collection[str]:    
         # instruction
@@ -241,22 +289,173 @@ class LocalLLM(LLM):
 
 
     def _draw_samples_api(self, prompt: str, config: config_lib.Config) -> Collection[str]:
+        
+        
+        def _is_gpt5(name: str)-> bool:
+            n = (name or "").lower()
+            return n.startswith("gpt-5") 
+        
+        def _is_gemini(name: str) -> bool:
+            n = (name or "").lower()
+            return n.startswith("gemini")
+        def _parse_responses_api(obj: dict) -> str:
+            t = obj.get("output_text")
+            if t:
+                return t
+            parts = []
+            for item in obj.get("output", []):
+                if item.get("type") == "message":
+                    for c in item.get("content", []):
+                        if c.get("type") == "output_text":
+                            parts.append(c.get("text", ""))
+            return "".join(parts)
+
+        def _parse_gemini(obj: dict) -> str:
+            ''' Program to parse responses from gemini'''
+            try:
+                cand = obj["candidates"][0]
+                parts = cand.get("content", {}).get("parts", [])
+                if parts:
+                    return "".join(p.get("text", "") for p in parts)
+                if "content" in cand and isinstance(cand["content"], dict):
+                    return "".join(p.get("text", "") for p in cand["content"].get("parts", []))
+            except Exception:
+                pass
+            return obj.get("candidates", [{}])[0].get("text", "") 
+            
         all_samples = []
         prompt = '\n'.join([self._instruction_prompt, prompt])
         
         #DLETE AFTER
         os.makedirs("./logs/prompt_dumps", exist_ok=True)
-        with open("./logs/prompt_dumps/full_prompt_log.txt", "a", encoding="utf-8") as f:
+        with open("./logs/prompt_dumps/full_prompt_11_18.txt", "a", encoding="utf-8") as f:
             f.write("\n====================== NEW PROMPT ======================\n")
             f.write(prompt if isinstance(prompt, str) else str(prompt))
             f.write("\n========================================================\n\n")
+            
+        model = getattr(config, "api_model", "")
+        use_gpt5   = _is_gpt5(model)
+        use_gemini = _is_gemini(model)
+
+        # keys/env 
+        openai_key  =  os.environ.get("API_KEY")
+        google_key  =  os.environ.get("GEMINI_API_KEY")
+
+        # Settings
+        temperature = getattr(config, "temperature", 0.2)
+        verbosity = getattr(config, "verbosity", "low") # "low" | "medium" | "high"
+        reasoning_effort = getattr(config, "reasoning_effort", "low") # "minimal"|"medium"|"high"
         
         for _ in range(self._samples_per_prompt):
+            attempts, backoff = 0,0.5
             while True:
+                attempts +=1
                 try:
+                    if use_gemini:
+                        if not google_key:
+                            raise RuntimeError("Missing Gemini API key")
+                        conn = http.client.HTTPSConnection("generativelanguage.googleapis.com")
+                        payload = {
+                        "contents": [
+                            {"role": "user", "parts": [{"text": prompt}]}
+                        ],
+                        "generationConfig": {
+                            "temperature": temperature,
+                            "maxOutputTokens": 55000
+                        }
+                        }
+                        path = f"/v1beta/models/{model}:generateContent?key={google_key}"
+                        conn.request("POST", path, json.dumps(payload), {
+                            "Content-Type": "application/json"
+                        })
+                        res = conn.getresponse()
+                        raw = res.read().decode("utf-8")
+                        if res.status >= 400:
+                            raise RuntimeError(f"Gemini error {res.status}: {raw}")
+                        
+                        data = json.loads(raw)
+                        #print("\n================= RAW GEMINI API RESPONSE ==================")
+                        print(json.dumps(data, indent=2))
+                        #print("=========================================================\n")
+                        response_text = _parse_gemini(data)
+                    
+                    elif use_gpt5:
+                    # -------- OpenAI GPT-5 (Responses API) --------
+                        if not openai_key:
+                            raise RuntimeError("Missing OPENAI_API_KEY")
+                        conn = http.client.HTTPSConnection("api.openai.com")
+                        payload = {
+                                "model": model,
+                                "input": prompt, 
+                                "max_output_tokens": 10000, 
+                                "text": {"verbosity": verbosity},
+                                "reasoning": {"effort": reasoning_effort}
+                            }
+                        conn.request("POST", "/v1/responses", json.dumps(payload), {
+                            "Authorization": f"Bearer {openai_key}",
+                            "Content-Type": "application/json"
+                        })
+                        res = conn.getresponse()
+                        raw = res.read().decode("utf-8")
+                        if res.status >= 400:
+                            raise RuntimeError(f"Responses API error {res.status}: {raw}")
+                        data = json.loads(raw)
+                        #print("\n================= RAW GPT-5 API RESPONSE ==================")
+                        #print(data)
+                        #print("=========================================================\n")
+                        # ---------------------------------
+                        data = json.loads(raw)
+                        response_text = _parse_responses_api(data)
+
+                    else:
+                        # -------- OpenAI legacy Chat Completions --------
+                        if not openai_key:
+                            raise RuntimeError("Missing OPENAI_API_KEY")
+                        conn = http.client.HTTPSConnection("api.openai.com")
+                        payload = {
+                            "model": model,  
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": 2000,
+                            "temperature": temperature,
+                            
+                        }
+                        conn.request("POST", "/v1/chat/completions", json.dumps(payload), {
+                            "Authorization": f"Bearer {openai_key}",
+                            "Content-Type": "application/json"
+                        })
+                        res = conn.getresponse()
+                        raw = res.read().decode("utf-8")
+                        if res.status >= 400:
+                            raise RuntimeError(f"Chat Completions error {res.status}: {raw}")
+                        data = json.loads(raw)
+                        #print("\n================= RAW GPT API RESPONSE ==================")
+                        #print(data)
+                        #print("=========================================================\n")
+                        response_text = data["choices"][0]["message"]["content"]
+
+                    if self._trim:
+                        response_text = _extract_body(response_text, config)
+
+                    all_samples.append(response_text or "    # empty response\n    pass\n")
+                    break
+
+                except Exception as e:
+                    print(f"API call attempt {attempts} failed. Error: {e}") 
+                    if attempts >= 6:
+                        print("Max retries reached. Giving up on this sample.") 
+                        all_samples.append("    # generation failed after retries\n    pass\n")
+                        break
+                    
+                    backoff = min(backoff * 2, 8.0)
+                    print(f"Retrying in {backoff:.1f} seconds...") 
+                    time.sleep(backoff)
+
+            return all_samples
+                    
+    '''   original
                     conn = http.client.HTTPSConnection("api.openai.com")
                     payload = json.dumps({
-                        "max_tokens": 512,
+                        "max_tokens": 1500,
                         "model": config.api_model,
                         "messages": [
                             {
@@ -285,7 +484,7 @@ class LocalLLM(LLM):
                     continue
         
         return all_samples
-    
+    '''
     
     def _do_request(self, content: str) -> str:
         content = content.strip('\n').strip()
