@@ -9,6 +9,27 @@ Official implementation of  [LLM-FE: Automated Feature Engineering for Tabular D
 ## 📄 Overview
 LLM-FE is a novel framework that leverages Large Language Models (LLMs) as evolutionary optimizers to automate feature engineering for tabular datasets.  LLM-FE iteratively generates and refines features using structured prompts, selecting high-impact transformations based on model performance. This approach enables the discovery of interpretable and high-quality features, enhancing the performance of various machine learning models across diverse classification and regression tasks.
 
+## Current Improvements 
+- [x] Integrate WandB for deeper evaluation.
+- [x] Add support for Gemini and GPT-5
+- [x] Integrate API (Gemini) for feature evaluation.
+- [x] Modify prompt with score feedback.
+- [x] Modify metadata and utlis.py for correct data classification.
+- [x] Modify to handle time series data.
+- [ ] Utilize Genetic Algorithm for feature credit assignment to generate the optimal set of features.
+
+## Before Running 
+This project requires access to LLM providers and experiment tracking. You will need to generate API keys for the following services:
+
+* **Google Gemini:**
+    * Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
+* **OpenAI:**
+    * Go to [OpenAI Platform](https://platform.openai.com/api-keys).
+* **Weights & Biases (WandB):**
+    * Sign up for a free account at [wandb.ai](https://wandb.ai/site).
+    * Go to your [Settings/API Keys](https://wandb.ai/authorize) to copy your personal API key.
+    * After running provide your API key in the terminal.
+    
 ## ⚙️ Installation
 To run the code, create a conda environment and install the dependencies using `requirements.txt`:
 
@@ -19,7 +40,16 @@ pip install -r requirements.txt
 ```
 
 ## 🔧 Usage
-
+Set the API key in run_llmfe.sh:
+```
+export API_KEY= <OpenAI API Key>
+export GEMINI_API_KEY=<Gemini API Key>
+export GEMINI_API_EVALUATOR=<Gemini API Key>
+```
+Uncomment the desired prediction problem in run_llmfe.sh and set the desired API Model:
+```
+python main.py --use_api True --api_model "gpt-3.5-turbo" --problem_name btc --spec_path ./specs/specification_btc.txt --log_path ./logs/btc_gpt_3.5_turbo
+```
 To run the LLM-FE pipeline on a sample dataset:
 ```
 bash run_llmfe.sh
