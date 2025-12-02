@@ -205,51 +205,10 @@ class LocalLLM(LLM):
         url = "http://127.0.0.1:5000/completions"
         instruction_prompt_o = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
                              Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs. Each program will be given a score as a reference.\n\n")
-        instruction_prompt_creative_1 = ('''You are an experimental Data Scientist.
-                                Your goal is to maximize model performance by creatively engineering new features.
-                                ###
-                                <Input_Manifest>
-                                1. <Role>: Your objective.
-                                2. <Task>: The prediction problem.
-                                3. <Features>: The dataset columns.
-                                4. <Code_Context>: The code history and the skeleton you must complete.
-                                </Input_Manifest>''')
-        instruction_prompt_1= ('''You are an innovative Data Scientist.
-                            Your goal is to discover novel, high-impact features through creative experimentation.
 
-                            ###
-                            <Input_Manifest>
-                            1. <Role>: Your objective.
-                            2. <Task>: The prediction problem.
-                            3. <Features>: The dataset columns.
-                            4. <Concepts>: The general mathematical concepts you should explore.
-                            5. <Code_Context>: The history and skeleton you must complete.
-                            </Input_Manifest>''')
-        
-        instruction_prompt_1 = ('''
-                            You are an AI assistant specializing in **Automated Feature Engineering**.
-                            Your mission is to maximize the predictive performance of a machine learning model by generating high-quality features.
-                            <Input_Manifest>
-                            You will be provided with the following information blocks, in this strict order:
-                            1.**<Role> & <Objectives>**: Your persona and goals.
-                            2.**<Constraints> and/or <Operators>**: The allowed `pandas`/`numpy` tools.
-                            3.**<Task> & <Data>**: The prediction problem, feature descriptions, and examples.
-                            4.**<Refinement_Strategy>**: The specific instructions for evaluating previous code and evolving it.
-                            **Finally**, you will be presented with the **<Sample_Programs>**, containing the history and the skeleton you must complete.
-                            </Input_Manifest>
-                              ''')
-        
-        instruction_prompt_3 = ("You are an assistant specializing in analyzing data which will be given the following:\n"
-                              "<Role>: how you should behave.\n"
-                              "<Instructions>: your task to complete.\n"
-                              "<Task>: the prediction task to be completed.\n"
-                              "<Features>: description of the features in the dataset.\n"
-                              "<Examples>: subset of the data with features and prediction label.\n"
-                              "Sample programs to reference.\n"
-                              "A starting skeleton for a program you are to complete to improve feature engineering.\n\n")
-        #instruction_prompt = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
-        #                     Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs.\n\n")
-        instruction_prompt = ""
+        instruction_prompt = ("You are a helpful assistant tasked with discovering new features/ dropping less important feaures for the given prediction task. \
+                             Complete the 'modify_features' function below, considering the physical meaning and relationships of inputs.\n\n")
+     
         self._batch_inference = batch_inference
         self._url = url
         self._instruction_prompt = instruction_prompt
@@ -415,8 +374,7 @@ class LocalLLM(LLM):
                         payload = {
                             "model": model,  
                             "messages": [{"role": "user", "content": prompt}],
-                            "max_tokens": 2000,
-                            "temperature": temperature,
+                            "max_tokens": 512
                             
                         }
                         conn.request("POST", "/v1/chat/completions", json.dumps(payload), {

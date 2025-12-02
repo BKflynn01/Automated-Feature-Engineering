@@ -56,7 +56,7 @@ def main(
 
     # Initialize Weights & Biases
     wandb.init(
-        project="llmfe-feature-engineering-btc",
+        project="llmfe-feature-engineering-btc-original",
         config=dataclasses.asdict(config),
         name=f"{kwargs.get('log_dir', 'run')}"
     )
@@ -70,7 +70,7 @@ def main(
     else:
         profiler = profile.Profiler(log_dir=log_dir,
                                     wandb_enable=True,
-                                    wandb_project = "llmfe-feature-engineering-btc",
+                                    wandb_project = "llmfe-feature-engineering-btc-original",
                                     wandb_run_name = kwargs.get("run_name"),
                                     split_id=kwargs.get("split_id"),
                                     base_step=kwargs.get("base_step", 0))

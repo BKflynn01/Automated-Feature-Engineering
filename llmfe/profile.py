@@ -24,7 +24,7 @@ class Profiler:
             pkl_dir: str | None = None,
             max_log_nums: int | None = None,
             wandb_enable: bool = True,
-            wandb_project: str = "llmfe-feature-engineering-btc",
+            wandb_project: str = "llmfe-feature-engineering-btc-original",
             wandb_run_name: str | None = None,
             wandb_group_name: str | None = None,
             split_id: int | None = None,

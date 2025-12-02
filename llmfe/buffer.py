@@ -378,38 +378,32 @@ class Island:
 
         indices = np.argsort(scores)
         sorted_implementations = [implementations[i] for i in indices]
-        sorted_scores = [scores[i] for i in indices]
+        # return back to having no feedback score 
         version_generated = len(sorted_implementations) + 1
-        prompt_str = self._generate_prompt(sorted_implementations, sorted_scores)
-        return prompt_str, version_generated, sorted_implementations[-1].data_input, sorted_implementations[-1].data_output
+        return self._generate_prompt(sorted_implementations), version_generated, sorted_implementations[-1].data_input, sorted_implementations[-1].data_output
 
 
     def _generate_prompt(
             self,
-            implementations: Sequence[code_manipulation.Function],
-            scores: Sequence[float]) -> str:
+            implementations: Sequence[code_manipulation.Function]) -> str:
         """ Create a prompt containing a sequence of function `implementations`."""
         implementations = copy.deepcopy(implementations)
         # Format the names and docstrings of functions to be included in the prompt.
         versioned_functions: list[code_manipulation.Function] = []
         input_data = []
         output_data = []
-        for i, (implementation,score) in enumerate(zip(implementations, scores)):
+        for i, implementation in enumerate(implementations):
             new_function_name = f'{self._function_to_evolve}_v{i}'
             implementation.name = new_function_name
-            score_abs = abs(score)
-            score_doc = f"\n\nThis program scored: {score_abs:.4f}"
             original_docstring = implementation.docstring or "" # safety feature for original func v0
             
             # Update the docstring for all subsequent functions after `_v0`.
             if i >= 1:
                 implementation.docstring = (
-                    f'{score_doc}\n'
                     f'Improved version of `{self._function_to_evolve}_v{i - 1}`.'
                     )
             else: 
                 implementation.docstring = (
-                    f'{score_doc}\n'
                     f'{original_docstring}'
                 )
             # If the function is recursive, replace calls to itself with its new name.
@@ -428,7 +422,7 @@ class Island:
         header = dataclasses.replace(
             implementations[-1],
             name=new_function_name,
-            body='    <Replace with improved programm>\n    return df_output',
+            body='',
             docstring=('Improved version of '
                        f'`{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features.'),
         )
@@ -449,6 +443,8 @@ class Island:
         df_current = df_current.sample(frac=1).head(10) # changed from 10 
         
         total_column_list = [df_current.columns.tolist()]
+        categorical_indicator = [is_categorical(df_current.iloc[:, i]) for i in range(df_current.shape[1])]
+        
         for selected_column in total_column_list:
             for icl_idx, icl_row in df_current.iterrows():
                 icl_row = icl_row[selected_column]
@@ -456,42 +452,22 @@ class Island:
                 in_context_desc += "\n"
 
             feature_name_list = []
-            for cname in selected_column:
+            sel_cat_idx = [df_current.columns.tolist().index(col_name) for col_name in selected_column]
+            is_cat_sel = np.array(categorical_indicator)[sel_cat_idx]
+            
+            for cidx, cname in enumerate(selected_column):
                 if cname == "Result":
                     break
-                entry = self._meta_data.get(cname, {})
-                description = ""
-                type_hint = None
-                if isinstance(entry, dict):
-                    description = entry.get("description", "") or ""
-                    if entry.get("context"):
-                        description = f"{description} ({entry['context']})" if description else entry["context"]
-                    type_hint = entry.get("type")
-                elif isinstance(entry, str):
-                    description = entry
-                if not description:
-                    description = cname.replace('_', ' ')
-
-                if type_hint:
-                    normalized_type = str(type_hint).lower()
-                    if normalized_type in {"categorical", "binary", "ordinal"}:
-                        is_cat_feature = True
-                    elif normalized_type in {"continuous", "numeric", "numerical"}:
-                        is_cat_feature = False
-                    else:
-                        is_cat_feature = is_categorical(df_current[cname])
-                else:
-                    is_cat_feature = is_categorical(df_current[cname])
-
-                if is_cat_feature:
-                    clist = df_input[cname].dropna().unique().tolist()
+                if is_cat_sel[cidx] == True:
+                    clist = df_current[cname].unique().tolist()
                     clist = [str(c) for c in clist]
                     clist_str = ", ".join(clist)
-                    feature_name_list.append(f"- {cname}: {description} (categorical variable with categories [{clist_str}])")
+                    desc = self._meta_data[cname] if cname in self._meta_data.keys() else ""
+                    feature_name_list.append(f"- {cname}: {desc} (categorical variable with categories [{clist_str}])")
                 else:
-                    min_val = input_data[-1][cname].min()
-                    max_val = input_data[-1][cname].max()
-                    feature_name_list.append(f"- {cname}: {description} (numerical variable within range [{min_val}, {max_val}])")
+                    min_val, max_val = input_data[-1][cname].min(), input_data[-1][cname].max()
+                    desc = self._meta_data[cname] if cname in self._meta_data.keys() else cname.replace('_', ' ')
+                    feature_name_list.append(f"- {cname}: {desc} (numerical variable within range [{min_val}, {max_val}])")
             
             feature_desc = "\n".join(feature_name_list)
 

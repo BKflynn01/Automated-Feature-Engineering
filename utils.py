@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_string_dtype
 
-'''
+
 def is_categorical(x):
     assert type(x) == pd.Series
     x = x.convert_dtypes()
@@ -18,8 +18,8 @@ def is_categorical(x):
  
     else:
         return True
-'''
-def is_categorical(x: pd.Series, meta_data: dict, column_name: str) -> bool:
+
+'''def is_categorical(x: pd.Series, meta_data: dict, column_name: str) -> bool:
     """
     Checks if a column is categorical using the metadata JSON as the
     primary source of truth.
@@ -49,7 +49,7 @@ def is_categorical(x: pd.Series, meta_data: dict, column_name: str) -> bool:
         return False 
     else:
         return True
-
+'''
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)

@@ -23,11 +23,12 @@ parser.add_argument('--log_path', type=str, default="./logs/oscillator1")
 parser.add_argument('--problem_name', type=str, default="oscillator1")
 parser.add_argument('--run_id', type=int, default=1)
 args = parser.parse_args()
+review = False
 
 
 if __name__ == '__main__':
     # Define the maximum number of iterations
-    global_max_sample_num = 200
+    global_max_sample_num = 20
     splits = 5
     seed = 42
     # Load prompt specification
@@ -42,28 +43,14 @@ if __name__ == '__main__':
     is_regression = False
     if problem_name in ['btc','forest-fires', 'housing', 'insurance', 'bike', 'wine', 'crab']:
         is_regression = True
-        print("Regression Accepted")
 
     # Load data observations
     file_name = f"./data/{problem_name}.csv"
     df = pd.read_csv(file_name)
     
     target_attr = df.columns[-1]
-    # Alteration for data cat
-    meta_data_name = f"./data/{problem_name}-metadata.json"
-    meta_data = {}
-    try:
-        with open(meta_data_name, "r") as f:
-            meta_data = json.load(f)
-    except Exception as e:
-        print(f"Warning: failed to load metadata from {meta_data_name}: {e}")
-    # End alteration for data cat 
-
+    is_cat = [is_categorical(df.iloc[:, i]) for i in range(df.shape[1])][:-1]
     attribute_names = df.columns[:-1].tolist()
-    is_cat_map = {
-        name: is_categorical(df[name], meta_data, name)
-        for name in attribute_names
-    }
     X = df.convert_dtypes()
     y = df[target_attr].to_numpy()
     label_list = np.unique(y).tolist()
@@ -91,34 +78,12 @@ if __name__ == '__main__':
     try:
         with open(meta_data_name, "r") as f:
             filed_meta_data = json.load(f)
-        if isinstance(filed_meta_data, dict) and (
-                'continuous_features' in filed_meta_data or
-                'categorical_features' in filed_meta_data):
-            for feature in filed_meta_data.get('continuous_features', []):
-                name = feature.get('name')
-                if not name:
-                    continue
-                meta_data[name] = {
-                    "type": feature.get('type', 'continuous'),
-                    "description": feature.get('description', ''),
-                    "context": feature.get('context', '')
-                }
-            for feature in filed_meta_data.get('categorical_features', []):
-                name = feature.get('name')
-                if not name:
-                    continue
-                meta_data[name] = {
-                    "type": feature.get('type', 'categorical'),
-                    "description": feature.get('description', ''),
-                    "context": feature.get('context', '')
-                }
-        else:
-            meta_data = filed_meta_data if isinstance(filed_meta_data, dict) else {}
-    except Exception as e:
-        print(f"Warning: failed to load metadata from {meta_data_name}: {e}")
+    except:
+        filed_meta_data = {}
+    meta_data = dict(meta_data, **filed_meta_data)
     
     tscv = TimeSeriesSplit(n_splits=splits) if is_regression else StratifiedKFold(n_splits=splits, shuffle=True, random_state=42)
-    print(tscv)
+    
     review_processes = []
     i = 0
     for train_idx, test_idx in tscv.split(X, y):
@@ -134,9 +99,9 @@ if __name__ == '__main__':
         X_train_fold, X_test_fold = X.iloc[train_idx], X.iloc[test_idx]
         y_train_fold, y_test_fold = y[train_idx], y[test_idx]
         i +=1
+        print(X_train_fold)
 
-        current_is_cat = [is_cat_map.get(col, False) for col in X.columns]
-        data_dict = {'inputs': X_train_fold, 'outputs': y_train_fold, 'is_cat': current_is_cat, 'is_regression': is_regression}
+        data_dict = {'inputs': X_train_fold, 'outputs': y_train_fold, 'is_cat': is_cat, 'is_regression': is_regression}
         dataset = {'data': data_dict}
         log_path = args.log_path + f"_split_{i}"
         
@@ -165,7 +130,8 @@ if __name__ == '__main__':
         api_key = os.environ.get('GEMINI_API_EVALUATOR') 
         review_model = 'gemini-2.5-flash'
         
-        if api_key and wandb_run_id:
+        
+        if api_key and wandb_run_id and review:
             print(f'Triggering Gemini Review for Run ID: {wandb_run_id}')
             p=subprocess.Popen([
                 'python',

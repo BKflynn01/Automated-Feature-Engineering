@@ -1,10 +1,7 @@
-Generate new features by strictly applying the <Operators> list to maximize information density.
-Focus on mathematical transformation (e.g., Log, Delta, Rolling) rather than financial theory.
+Please generate as many new features strictly using the operations mentioned in <Operators>, the information from the task, feature description, examples, and your own understanding of the dataset and it's domain.
+Enhance the model performance by dropping irrelevant, redundant or less informative features, that do not contribute toward the <Task>.
 
-First, describe the operator logic in a one-sentence docstring.
-Then, implement the `modify_features_v2` function.
+First, describe your new feature transformation and main steps in one sentence. The description must be inside the docstring.
+Next, implement it in Python as a function that matches the specification.
 
-**CRITICAL INSTRUCTION**
-1. VALIDATE: No loops (use vectorization) and NO look-ahead bias.
-2. SCORING: Use the score of the following programs as a reference but **never** make up your own score.
-3. Your code must start with df_output = df_input.copy() before any alterations are made
+Avoid providing any additional description.

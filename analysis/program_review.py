@@ -12,8 +12,8 @@ class ScriptConfig:
     Holds all modifiable parameters for the script.
     """
     # Project settings
-    WANDB_PROJECT = "llmfe-feature-engineering-btc"
-    WEAVE_PROJECT = "llmfe-feature-engineering-btc"
+    WANDB_PROJECT = "llmfe-feature-engineering-btc-original"
+    WEAVE_PROJECT = "llmfe-feature-engineering-btc-original"
 
     # Model and API settings
     DEFAULT_MODEL = "gemini-2.5-flash"
