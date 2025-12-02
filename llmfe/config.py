@@ -21,8 +21,8 @@ class ExperienceBufferConfig:
         cluster_sampling_temperature_period (int): Period for temperature decay
     """
     functions_per_prompt: int = 2
-    num_islands: int = 3
-    reset_period: int = 4*60*60   # originaly 4*60*60
+    num_islands: int = 4
+    reset_period: int = 5*60   # originaly 4*60*60
     cluster_sampling_temperature_init: float = 0.1
     cluster_sampling_temperature_period: int = 30_000
 
@@ -42,7 +42,7 @@ class Config:
     experience_buffer: ExperienceBufferConfig = dataclasses.field(default_factory=ExperienceBufferConfig)
     num_samplers: int = 1
     num_evaluators: int = 1
-    samples_per_prompt: int = 3 #originally 3
+    samples_per_prompt: int = 1 #originally 3
     evaluate_timeout_seconds: int = 30
     use_api: bool = False
     api_model: str = "gpt-3.5-turbo"

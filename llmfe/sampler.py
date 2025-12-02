@@ -374,7 +374,7 @@ class LocalLLM(LLM):
                         payload = {
                             "model": model,  
                             "messages": [{"role": "user", "content": prompt}],
-                            "max_tokens": 512
+                            "max_tokens": 2000
                             
                         }
                         conn.request("POST", "/v1/chat/completions", json.dumps(payload), {
