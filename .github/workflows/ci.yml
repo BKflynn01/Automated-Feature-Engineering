@@ -29,7 +29,7 @@ jobs:
       run: flake8 ga_optimizer/
 
     - name: Run tests with coverage
-      run: pytest --cov-report=html
+      run: PYTHONPATH=. pytest --cov-report=html
 
     - name: Upload coverage report
       uses: actions/upload-artifact@v5
