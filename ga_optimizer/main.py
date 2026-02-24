@@ -16,7 +16,9 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--input_csv", required=True, help="Path to input CSV dataset")
-    parser.add_argument("--samples_dir", required=True, help="Directory containing candidate JSON files")
+    parser.add_argument(
+        "--samples_dir", required=True, help="Directory containing candidate JSON files"
+    )
     parser.add_argument("--output_csv", required=True, help="Path to write merged output CSV")
     parser.add_argument(
         "--metadata_csv",
@@ -46,7 +48,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_label_column(df: pd.DataFrame, label_column: str | None, use_last_column: bool) -> str | None:
+def resolve_label_column(
+    df: pd.DataFrame, label_column: str | None, use_last_column: bool
+) -> str | None:
     if label_column:
         if label_column not in df.columns:
             raise ValueError(f"label column '{label_column}' not found in input columns")
@@ -62,7 +66,9 @@ def main() -> None:
     input_path = Path(args.input_csv)
     samples_path = Path(args.samples_dir)
     output_path = Path(args.output_csv)
-    metadata_path = Path(args.metadata_csv) if args.metadata_csv else output_path.with_suffix(".meta.csv")
+    metadata_path = (
+        Path(args.metadata_csv) if args.metadata_csv else output_path.with_suffix(".meta.csv")
+    )
 
     if not input_path.exists():
         raise ValueError(f"input_csv does not exist: {input_path}")

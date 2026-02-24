@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass
 import glob
 import json
 import os
+from collections import defaultdict
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -64,7 +64,9 @@ def load_candidates(samples_dir: str) -> List[FeatureCandidate]:
     return candidates
 
 
-def select_top_k_per_island(candidates: List[FeatureCandidate], k: int = 2) -> List[FeatureCandidate]:
+def select_top_k_per_island(
+    candidates: List[FeatureCandidate], k: int = 2
+) -> List[FeatureCandidate]:
     """Select top-k candidates per island by descending score."""
     if k <= 0:
         raise ValueError("k must be > 0")
@@ -181,7 +183,9 @@ class FeatureExtractionPipeline:
                     }
                 )
 
-        generated_df = pd.concat(generated_parts, axis=1) if generated_parts else pd.DataFrame(index=df.index)
+        generated_df = (
+            pd.concat(generated_parts, axis=1) if generated_parts else pd.DataFrame(index=df.index)
+        )
 
         label_series = None
         if label_column and label_column in df.columns:
