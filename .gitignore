@@ -1,5 +1,5 @@
 run_llmfe.sh
-llmfe/__pycache__/
+/__pycache__/
 logs/
 wandb/
 .vscode/

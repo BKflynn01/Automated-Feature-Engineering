@@ -1,12 +1,12 @@
 name: CI
 on: [push, pull_request]
 
-jobs: 
+jobs:
   test:
     runs-on: ubuntu-latest
 
-    steps: 
-    - uses: actions/checkout@v6
+    steps:
+    - uses: actions/checkout@v4
 
     - uses: actions/setup-python@v5
       with:
@@ -14,7 +14,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install -m pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install -r requirements-dev.txt
 
     - name: Check formatting with Black
@@ -24,13 +24,13 @@ jobs:
       run: isort --check ga_optimizer/
 
     - name: Lint with Flake8
-      run: flake8 ga_optimizer/ 
+      run: flake8 ga_optimizer/
 
     - name: Run tests with coverage
-      run: pytest -- cov=ga_optimizer --cov-report=term --cov-report=html 
+      run: pytest --cov-report=html
 
-    - name: Upload coverage report 
+    - name: Upload coverage report
       uses: actions/upload-artifact@v5
-      with: 
+      with:
         name: coverage-report
         path: htmlcov/
