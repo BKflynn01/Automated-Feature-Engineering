@@ -1,0 +1,36 @@
+name: CI
+on: [push, pull_request]
+
+jobs: 
+  test:
+    runs-on: ubuntu-latest
+
+    steps: 
+    - uses: actions/checkout@v6
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+
+    - name: Check formatting with Black
+      run: black --check ga_optimizer/
+
+    - name: Check import sorting with isort
+      run: isort --check ga_optimizer/
+
+    - name: Lint with Flake8
+      run: flake8 ga_optimizer/ 
+
+    - name: Run tests with coverage
+      run: pytest -- cov=ga_optimizer --cov-report=term --cov-report=html 
+
+    - name: Upload coverage report 
+      uses: actions/upload-artifact@v5
+      with: 
+        name: coverage-report
+        path: htmlcov/
