@@ -48,6 +48,6 @@ def test_dataset_pipeline_integration(tmp_path, data_path):
     metadata_debug = metadata_df.to_string(index=False)
     assert out_df.shape[0] == df.shape[0]
     assert out_df.columns[-1] == label_column
-    assert any(col.startswith("is1_s1_") for col in out_df.columns), metadata_debug
+    assert "feature_sum_first_two" in out_df.columns, metadata_debug
     assert len(metadata_df) == 1, metadata_debug
     assert metadata_df.iloc[0]["status"] == "success", metadata_debug

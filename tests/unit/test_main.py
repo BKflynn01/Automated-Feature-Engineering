@@ -26,6 +26,16 @@ def test_resolve_label_column_uses_last_column():
     assert resolved == "y"
 
 
+def test_resolve_label_column_returns_none_when_last_column_inference_disabled():
+    df = pd.DataFrame({"x": [1, 2], "y": [0, 1]})
+    resolved = ga_main.resolve_label_column(
+        df,
+        label_column=None,
+        use_last_column=False,
+    )
+    assert resolved is None
+
+
 def test_resolve_label_column_raises_for_missing_column():
     df = pd.DataFrame({"x": [1, 2], "y": [0, 1]})
     with pytest.raises(ValueError, match="label column 'target' not found"):

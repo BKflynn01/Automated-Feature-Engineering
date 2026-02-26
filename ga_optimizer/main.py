@@ -91,8 +91,8 @@ def main() -> None:
 
     final_df, metadata_df = pipeline.run(df, dataset_name=input_path.stem)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    for parent in {output_path.parent, metadata_path.parent}:
+        parent.mkdir(parents=True, exist_ok=True)
 
     final_df.to_csv(output_path, index=False, sep=args.sep)
     metadata_df.to_csv(metadata_path, index=False)

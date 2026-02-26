@@ -4,9 +4,9 @@ import glob
 import hashlib
 import json
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TextIO, Tuple
+from typing import Dict, List, Optional, Set, TextIO, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,18 +20,13 @@ class FeatureCandidate:
     sample_order: int
     source_file: str
 
-    def __hash__(self) -> int:
-        return hash(self.function_code)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, FeatureCandidate) and self.function_code == other.function_code
-
 
 @dataclass
 class ExecutedCandidate:
     candidate: FeatureCandidate
     output_columns: Tuple[str, ...]
     semantic_hash: str
+    output_df: Optional[pd.DataFrame] = None
 
 
 def load_candidates(samples_dir: str) -> List[FeatureCandidate]:
@@ -39,43 +34,82 @@ def load_candidates(samples_dir: str) -> List[FeatureCandidate]:
     if not os.path.exists(samples_dir):
         raise ValueError(f"Sample directory {samples_dir} does not exist")
 
+    patterns = ("*.json", "samples/*.json", "*_split_*/samples/*.json")
     files = sorted(
-        set(
-            glob.glob(os.path.join(samples_dir, "*.json"))
-            + glob.glob(os.path.join(samples_dir, "samples", "*.json"))
-            + glob.glob(os.path.join(samples_dir, "*_split_*", "samples", "*.json"))
-        )
+        {fpath for pattern in patterns for fpath in glob.glob(os.path.join(samples_dir, pattern))}
     )
     if not files:
         raise ValueError(f"No JSON files found in {samples_dir}")
 
     candidates: List[FeatureCandidate] = []
-    failed_count = 0
+    failed_reasons: Counter[str] = Counter()
+    failure_examples: Dict[str, List[str]] = defaultdict(list)
+
+    def record_failure(reason: str, rel_path: str) -> None:
+        failed_reasons[reason] += 1
+        if len(failure_examples[reason]) < 3:
+            failure_examples[reason].append(rel_path)
+
     for fp in files:
+        rel = os.path.relpath(fp, samples_dir)
         try:
             with open(fp, "r", encoding="utf-8") as f:
                 data = json.load(f)
+        except json.JSONDecodeError:
+            record_failure("json_decode_error", rel)
+            continue
+        except OSError:
+            record_failure("file_read_error", rel)
+            continue
 
-            function_code = data.get("function_code", data.get("function"))
-            if function_code is None:
-                failed_count += 1
-                continue
+        if not isinstance(data, dict):
+            record_failure("invalid_json_root_type", rel)
+            continue
 
+        function_code = data.get("function_code", data.get("function"))
+        if function_code is None:
+            record_failure("missing_function_or_function_code", rel)
+            continue
+
+        raw_island_id = data.get("island_id")
+        raw_score = data.get("score")
+        raw_sample_order = data.get("sample_order")
+
+        if raw_island_id is None:
+            record_failure("null_or_missing_island_id", rel)
+            continue
+
+        if raw_score is None:
+            record_failure("null_or_missing_score", rel)
+            continue
+
+        if raw_sample_order is None:
+            record_failure("null_or_missing_sample_order", rel)
+            continue
+
+        try:
             candidate = FeatureCandidate(
-                island_id=int(data["island_id"]),
-                score=float(data["score"]),
+                island_id=int(raw_island_id),
+                score=float(raw_score),
                 function_code=str(function_code),
-                sample_order=int(data["sample_order"]),
+                sample_order=int(raw_sample_order),
                 source_file=os.path.relpath(fp, samples_dir),
             )
             candidates.append(candidate)
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
-            failed_count += 1
+        except (KeyError, ValueError, TypeError):
+            record_failure("type_conversion_error", rel)
 
     if not candidates:
         raise ValueError(f"No valid candidates found in {samples_dir}")
+    failed_count = sum(failed_reasons.values())
+    print(
+        f"Candidate load summary: total={len(files)}, valid={len(candidates)}, failed={failed_count}"
+    )
     if failed_count > 0:
-        print(f"Warning: {failed_count} files failed to load and were skipped")
+        print("Candidate load failure reasons:")
+        for reason, count in failed_reasons.most_common():
+            examples = ", ".join(failure_examples[reason]) if failure_examples[reason] else "n/a"
+            print(f"  - {reason}: {count} (examples: {examples})")
     return candidates
 
 
@@ -101,22 +135,6 @@ def select_top_k_per_island(
     return selected
 
 
-def deduplicate_candidates(candidates: List[FeatureCandidate]) -> List[FeatureCandidate]:
-    """Deduplicate by exact function body, keeping the highest-scoring entry."""
-    best_by_code: Dict[str, FeatureCandidate] = {}
-    for candidate in candidates:
-        existing = best_by_code.get(candidate.function_code)
-        if existing is None:
-            best_by_code[candidate.function_code] = candidate
-            continue
-        if candidate.score > existing.score:
-            best_by_code[candidate.function_code] = candidate
-            continue
-        if candidate.score == existing.score and candidate.sample_order < existing.sample_order:
-            best_by_code[candidate.function_code] = candidate
-    return sorted(best_by_code.values(), key=lambda c: (c.island_id, -c.score, c.sample_order))
-
-
 def _candidate_id(candidate: FeatureCandidate) -> str:
     return f"is{candidate.island_id}_s{candidate.sample_order}::{candidate.source_file}"
 
@@ -134,10 +152,9 @@ def _sample_output_for_semantic_hash(df_out: pd.DataFrame) -> pd.DataFrame:
     if n_rows == 0:
         return df_out.copy()
 
-    if n_rows >= 40:
-        k = 20
-    else:
-        k = max(1, int(n_rows * 0.25))
+    k = max(1, int(np.ceil(n_rows * 0.25)))
+    if 2 * k >= n_rows:
+        return df_out.copy()
 
     head = df_out.head(k)
     tail = df_out.tail(k)
@@ -146,24 +163,63 @@ def _sample_output_for_semantic_hash(df_out: pd.DataFrame) -> pd.DataFrame:
 
 def _build_semantic_hash(df_out: pd.DataFrame, rounding_decimals: int = 8) -> str:
     sampled = _sample_output_for_semantic_hash(df_out)
-    normalized = (
-        sampled.replace([np.inf, -np.inf], 0)
-        .apply(lambda col: pd.to_numeric(col, errors="coerce"), axis=0)
-        .fillna(0)
-        .astype(float)
-        .round(rounding_decimals)
-    )
+    coerced = sampled.apply(pd.to_numeric, errors="coerce")
+    arr = coerced.to_numpy(dtype=float, copy=False)
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    arr = np.round(arr, decimals=rounding_decimals)
     payload = (
-        f"shape={df_out.shape[0]}x{df_out.shape[1]}|sample={normalized.shape[0]}x{normalized.shape[1]}|".encode(
+        f"shape={df_out.shape[0]}x{df_out.shape[1]}|sample={arr.shape[0]}x{arr.shape[1]}|".encode(
             "utf-8"
         )
-        + normalized.to_numpy().tobytes()
+        + arr.tobytes()
     )
     return hashlib.sha256(payload).hexdigest()
 
 
+def _extract_generated_feature_frame(
+    df_out: pd.DataFrame,
+    base_column_names: Set[str],
+    label_column: Optional[str] = None,
+) -> pd.DataFrame:
+    col_names = [str(c) for c in df_out.columns]
+    label_name = str(label_column) if label_column is not None else None
+    keep_mask = [
+        col_name not in base_column_names and (label_name is None or col_name != label_name)
+        for col_name in col_names
+    ]
+    generated_df = df_out.loc[:, keep_mask].copy()
+    generated_df.columns = [col_name for col_name, keep in zip(col_names, keep_mask) if keep]
+    return generated_df
+
+
+def _build_feature_semantic_hash(series: pd.Series, rounding_decimals: int = 8) -> str:
+    return _build_semantic_hash(
+        series.to_frame(name="feature"), rounding_decimals=rounding_decimals
+    )
+
+
+def _candidate_key(candidate: FeatureCandidate) -> Tuple[int, int, str]:
+    return (candidate.island_id, candidate.sample_order, candidate.source_file)
+
+
+def _feature_name(item: ExecutedCandidate) -> str:
+    if not item.output_columns:
+        return ""
+    return item.output_columns[0]
+
+
+def _feature_id(item: ExecutedCandidate) -> str:
+    return f"{_candidate_id(item.candidate)}::{_feature_name(item)}"
+
+
 def _append_report_line(report_file: TextIO, line: str) -> None:
     report_file.write(line + "\n")
+
+
+def _derive_execution_input(df: pd.DataFrame, label_column: Optional[str]) -> pd.DataFrame:
+    if label_column is not None and label_column in df.columns:
+        return df.drop(columns=[label_column])
+    return df
 
 
 def execute_candidates_for_dedup(
@@ -171,23 +227,37 @@ def execute_candidates_for_dedup(
     df_input: pd.DataFrame,
     report_file: TextIO,
     rounding_decimals: int = 8,
+    label_column: Optional[str] = None,
 ) -> Tuple[List[ExecutedCandidate], int]:
     executed: List[ExecutedCandidate] = []
     dropped_count = 0
+    base_column_names = {str(c) for c in df_input.columns}
     for candidate in candidates:
         cid = _candidate_id(candidate)
         try:
             df_out = _execute_candidate(candidate, df_input)
-            executed.append(
-                ExecutedCandidate(
-                    candidate=candidate,
-                    output_columns=tuple(str(c) for c in df_out.columns.tolist()),
-                    semantic_hash=_build_semantic_hash(df_out, rounding_decimals=rounding_decimals),
-                )
+            generated_df = _extract_generated_feature_frame(
+                df_out=df_out,
+                base_column_names=base_column_names,
+                label_column=label_column,
             )
+            for col, series in generated_df.items():
+                executed.append(
+                    ExecutedCandidate(
+                        candidate=candidate,
+                        output_columns=(str(col),),
+                        semantic_hash=_build_feature_semantic_hash(
+                            series, rounding_decimals=rounding_decimals
+                        ),
+                        output_df=generated_df,
+                    )
+                )
             _append_report_line(
                 report_file,
-                f"stage=execute action=kept candidate={cid} reason=execution_success",
+                (
+                    f"stage=execute action=kept candidate={cid} "
+                    f"generated_features={len(generated_df.columns)} reason=execution_success"
+                ),
             )
         except Exception as exc:
             dropped_count += 1
@@ -208,31 +278,31 @@ def dedup_stage_by_output_columns(
     dropped_count = 0
     for item in executed:
         current = best_by_columns.get(item.output_columns)
-        cid = _candidate_id(item.candidate)
+        fid = _feature_id(item)
         if current is None:
             best_by_columns[item.output_columns] = item
             _append_report_line(
                 report_file,
-                f"stage=dedup_columns action=kept candidate={cid} reason=unique_ordered_column_signature",
+                f"stage=dedup_columns action=kept feature={fid} reason=unique_feature_name",
             )
             continue
 
-        current_id = _candidate_id(current.candidate)
+        current_id = _feature_id(current)
         if _is_better_candidate(item.candidate, current.candidate):
             dropped_count += 1
             _append_report_line(
                 report_file,
                 (
-                    f"stage=dedup_columns action=dropped candidate={current_id} "
-                    f"compared_to={cid} reason=lower_score_same_ordered_column_signature"
+                    f"stage=dedup_columns action=dropped feature={current_id} "
+                    f"compared_to={fid} reason=lower_score_same_feature_name"
                 ),
             )
             best_by_columns[item.output_columns] = item
             _append_report_line(
                 report_file,
                 (
-                    f"stage=dedup_columns action=kept candidate={cid} "
-                    f"reason=higher_score_same_ordered_column_signature"
+                    f"stage=dedup_columns action=kept feature={fid} "
+                    f"reason=higher_score_same_feature_name"
                 ),
             )
             continue
@@ -241,65 +311,12 @@ def dedup_stage_by_output_columns(
         _append_report_line(
             report_file,
             (
-                f"stage=dedup_columns action=dropped candidate={cid} "
-                f"compared_to={current_id} reason=lower_or_equal_score_same_ordered_column_signature"
+                f"stage=dedup_columns action=dropped feature={fid} "
+                f"compared_to={current_id} reason=lower_or_equal_score_same_feature_name"
             ),
         )
 
-    survivors = sorted(
-        best_by_columns.values(),
-        key=lambda i: (i.candidate.island_id, -i.candidate.score, i.candidate.sample_order),
-    )
-    return survivors, dropped_count
-
-
-def dedup_stage_by_exact_code(
-    executed: List[ExecutedCandidate], report_file: TextIO
-) -> Tuple[List[ExecutedCandidate], int]:
-    best_by_code: Dict[str, ExecutedCandidate] = {}
-    dropped_count = 0
-    for item in executed:
-        code = item.candidate.function_code
-        current = best_by_code.get(code)
-        cid = _candidate_id(item.candidate)
-        if current is None:
-            best_by_code[code] = item
-            _append_report_line(
-                report_file,
-                f"stage=dedup_exact_code action=kept candidate={cid} reason=unique_function_string",
-            )
-            continue
-
-        current_id = _candidate_id(current.candidate)
-        if _is_better_candidate(item.candidate, current.candidate):
-            dropped_count += 1
-            _append_report_line(
-                report_file,
-                (
-                    f"stage=dedup_exact_code action=dropped candidate={current_id} "
-                    f"compared_to={cid} reason=lower_score_same_function_string"
-                ),
-            )
-            best_by_code[code] = item
-            _append_report_line(
-                report_file,
-                f"stage=dedup_exact_code action=kept candidate={cid} reason=higher_score_same_function_string",
-            )
-            continue
-
-        dropped_count += 1
-        _append_report_line(
-            report_file,
-            (
-                f"stage=dedup_exact_code action=dropped candidate={cid} "
-                f"compared_to={current_id} reason=lower_or_equal_score_same_function_string"
-            ),
-        )
-
-    survivors = sorted(
-        best_by_code.values(),
-        key=lambda i: (i.candidate.island_id, -i.candidate.score, i.candidate.sample_order),
-    )
+    survivors = list(best_by_columns.values())
     return survivors, dropped_count
 
 
@@ -310,29 +327,32 @@ def dedup_stage_by_semantic_hash(
     dropped_count = 0
     for item in executed:
         current = best_by_hash.get(item.semantic_hash)
-        cid = _candidate_id(item.candidate)
+        fid = _feature_id(item)
         if current is None:
             best_by_hash[item.semantic_hash] = item
             _append_report_line(
                 report_file,
-                f"stage=dedup_semantic_hash action=kept candidate={cid} reason=unique_output_signature",
+                f"stage=dedup_semantic_hash action=kept feature={fid} reason=unique_feature_output_signature",
             )
             continue
 
-        current_id = _candidate_id(current.candidate)
+        current_id = _feature_id(current)
         if _is_better_candidate(item.candidate, current.candidate):
             dropped_count += 1
             _append_report_line(
                 report_file,
                 (
-                    f"stage=dedup_semantic_hash action=dropped candidate={current_id} "
-                    f"compared_to={cid} reason=lower_score_same_output_signature"
+                    f"stage=dedup_semantic_hash action=dropped feature={current_id} "
+                    f"compared_to={fid} reason=lower_score_same_feature_output_signature"
                 ),
             )
             best_by_hash[item.semantic_hash] = item
             _append_report_line(
                 report_file,
-                f"stage=dedup_semantic_hash action=kept candidate={cid} reason=higher_score_same_output_signature",
+                (
+                    f"stage=dedup_semantic_hash action=kept feature={fid} "
+                    "reason=higher_score_same_feature_output_signature"
+                ),
             )
             continue
 
@@ -340,30 +360,36 @@ def dedup_stage_by_semantic_hash(
         _append_report_line(
             report_file,
             (
-                f"stage=dedup_semantic_hash action=dropped candidate={cid} "
-                f"compared_to={current_id} reason=lower_or_equal_score_same_output_signature"
+                f"stage=dedup_semantic_hash action=dropped feature={fid} "
+                f"compared_to={current_id} reason=lower_or_equal_score_same_feature_output_signature"
             ),
         )
 
     survivors = sorted(
         best_by_hash.values(),
-        key=lambda i: (i.candidate.island_id, -i.candidate.score, i.candidate.sample_order),
+        key=lambda i: (
+            i.candidate.island_id,
+            -i.candidate.score,
+            i.candidate.sample_order,
+            _feature_name(i),
+        ),
     )
     return survivors, dropped_count
 
 
 def deduplicate_candidates_multistage(
     candidates: List[FeatureCandidate],
-    df_input: pd.DataFrame,
+    execution_input: pd.DataFrame,
     report_path: str,
     rounding_decimals: int = 8,
-) -> Tuple[List[FeatureCandidate], Dict[str, int]]:
+    label_column: Optional[str] = None,
+) -> Tuple[List[ExecutedCandidate], Dict[str, int]]:
     summary = {
-        "total_input": len(candidates),
+        "total_input_candidates": len(candidates),
+        "total_input": 0,
         "dropped_execute": 0,
         "dropped_stage_1_columns": 0,
-        "dropped_stage_2_exact_code": 0,
-        "dropped_stage_3_semantic_hash": 0,
+        "dropped_stage_2_semantic_hash": 0,
         "total_survivors": 0,
     }
 
@@ -373,57 +399,63 @@ def deduplicate_candidates_multistage(
     with open(report_path, "w", encoding="utf-8") as report_file:
         _append_report_line(
             report_file,
-            "=== Multi-Stage Candidate Deduplication Report ===",
+            "=== Multi-Stage Feature Deduplication Report ===",
         )
         _append_report_line(
             report_file,
-            f"config rounding_decimals={rounding_decimals} semantic_window_policy=25pct_or_20_head_tail",
+            (
+                f"config rounding_decimals={rounding_decimals} "
+                "semantic_window_policy=25pct_head_and_25pct_tail "
+                "column_signature_scope=feature_level_generated_only "
+                f"label_column={label_column}"
+            ),
         )
 
         executed, dropped_execute = execute_candidates_for_dedup(
             candidates,
-            df_input=df_input,
+            df_input=execution_input,
             report_file=report_file,
             rounding_decimals=rounding_decimals,
+            label_column=label_column,
         )
+        summary["total_input"] = len(executed)
         summary["dropped_execute"] = dropped_execute
 
         stage1, dropped_stage1 = dedup_stage_by_output_columns(executed, report_file=report_file)
         summary["dropped_stage_1_columns"] = dropped_stage1
 
-        stage2, dropped_stage2 = dedup_stage_by_exact_code(stage1, report_file=report_file)
-        summary["dropped_stage_2_exact_code"] = dropped_stage2
+        stage2, dropped_stage2 = dedup_stage_by_semantic_hash(stage1, report_file=report_file)
+        summary["dropped_stage_2_semantic_hash"] = dropped_stage2
 
-        stage3, dropped_stage3 = dedup_stage_by_semantic_hash(stage2, report_file=report_file)
-        summary["dropped_stage_3_semantic_hash"] = dropped_stage3
-
-        survivors = [item.candidate for item in stage3]
+        survivors = stage2
         summary["total_survivors"] = len(survivors)
+        summary["total_survivor_candidates"] = len({_candidate_key(i.candidate) for i in survivors})
 
         _append_report_line(report_file, "")
         _append_report_line(report_file, "=== Summary ===")
+        _append_report_line(
+            report_file, f"total_input_candidates={summary['total_input_candidates']}"
+        )
         _append_report_line(report_file, f"total_input={summary['total_input']}")
         _append_report_line(report_file, f"dropped_execute={summary['dropped_execute']}")
         _append_report_line(
             report_file, f"dropped_stage_1_columns={summary['dropped_stage_1_columns']}"
         )
         _append_report_line(
-            report_file, f"dropped_stage_2_exact_code={summary['dropped_stage_2_exact_code']}"
-        )
-        _append_report_line(
-            report_file, f"dropped_stage_3_semantic_hash={summary['dropped_stage_3_semantic_hash']}"
+            report_file, f"dropped_stage_2_semantic_hash={summary['dropped_stage_2_semantic_hash']}"
         )
         _append_report_line(report_file, f"total_survivors={summary['total_survivors']}")
+        _append_report_line(
+            report_file, f"total_survivor_candidates={summary['total_survivor_candidates']}"
+        )
 
-    print(
-        "Dedup summary:"
-        f" input={summary['total_input']},"
-        f" dropped_execute={summary['dropped_execute']},"
-        f" dropped_stage_1={summary['dropped_stage_1_columns']},"
-        f" dropped_stage_2={summary['dropped_stage_2_exact_code']},"
-        f" dropped_stage_3={summary['dropped_stage_3_semantic_hash']},"
-        f" survivors={summary['total_survivors']}"
-    )
+    print("Deduplication stage summary:")
+    print(f"  input_candidates={summary['total_input_candidates']}")
+    print(f"  input_features={summary['total_input']}")
+    print(f"  dropped_execute={summary['dropped_execute']}")
+    print(f"  dropped_stage_1={summary['dropped_stage_1_columns']}")
+    print(f"  dropped_stage_2={summary['dropped_stage_2_semantic_hash']}")
+    print(f"  survivor_features={summary['total_survivors']}")
     print(f"Dedup report path: {report_path}")
     return survivors, summary
 
@@ -438,7 +470,7 @@ def _execute_candidate(candidate: FeatureCandidate, df_input: pd.DataFrame) -> p
     if not callable(function):
         raise ValueError("Candidate must define modify_features_v2 or modify_features")
 
-    df_out = function(df_input.copy())
+    df_out = function(df_input)
     if not isinstance(df_out, pd.DataFrame):
         raise TypeError("Feature function must return a pandas DataFrame")
     if not df_out.index.equals(df_input.index):
@@ -464,54 +496,108 @@ class FeatureExtractionPipeline:
     def run(
         self, df: pd.DataFrame, dataset_name: Optional[str] = None
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        resolved_label_column = self.label_column
+        execution_input = _derive_execution_input(df, resolved_label_column)
+
         candidates = load_candidates(self.samples_dir)
+        islands = sorted({c.island_id for c in candidates})
+        print(f"Loaded candidates: {len(candidates)}")
+        print(f"Islands found: {len(islands)} ({', '.join(str(i) for i in islands)})")
         selected = select_top_k_per_island(candidates, k=self.k_per_island)
+        print(f"Selected after top-k per island (k={self.k_per_island}): {len(selected)}")
         resolved_dataset_name = dataset_name or "dataset"
-        data_dir = self.data_dir or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+        data_root_dir = self.data_dir or os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "data"
+        )
+        data_dir = os.path.join(data_root_dir, resolved_dataset_name)
         report_path = os.path.join(data_dir, f"dedup_report_{resolved_dataset_name}.txt")
-        deduped, _ = deduplicate_candidates_multistage(
+        deduped_features, _ = deduplicate_candidates_multistage(
             selected,
-            df_input=df,
+            execution_input=execution_input,
             report_path=report_path,
             rounding_decimals=8,
+            label_column=resolved_label_column,
         )
-        filtered_manifest_path = os.path.join(data_dir, f"filtered_{resolved_dataset_name}.csv")
-        os.makedirs(data_dir, exist_ok=True)
+        filtered_manifest_path = os.path.join(data_dir, f"top_{self.k_per_island}_samples.csv")
         pd.DataFrame(
             [
                 {
-                    "island_id": c.island_id,
-                    "sample_order": c.sample_order,
-                    "score": c.score,
-                    "source_file": c.source_file,
+                    "island_id": item.candidate.island_id,
+                    "sample_order": item.candidate.sample_order,
+                    "score": item.candidate.score,
+                    "source_file": item.candidate.source_file,
+                    "feature_name": _feature_name(item),
+                    "feature_hash": item.semantic_hash,
                 }
-                for c in deduped
+                for item in deduped_features
             ]
         ).to_csv(filtered_manifest_path, index=False)
-        print(f"Filtered candidate manifest: {filtered_manifest_path}")
+        print(f"Filtered feature manifest: {filtered_manifest_path}")
         return self.build_full_dataframe(
             df=df,
-            candidates=deduped,
-            label_column=self.label_column,
+            selected_features=deduped_features,
+            label_column=resolved_label_column,
             include_original=self.include_original,
+            execution_input=execution_input,
         )
 
     @staticmethod
     def build_full_dataframe(
         df: pd.DataFrame,
-        candidates: List[FeatureCandidate],
+        candidates: Optional[List[FeatureCandidate]] = None,
+        selected_features: Optional[List[ExecutedCandidate]] = None,
         label_column: Optional[str] = None,
         include_original: bool = True,
+        execution_input: Optional[pd.DataFrame] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         generated_parts: List[pd.DataFrame] = []
         metadata_rows: List[Dict[str, object]] = []
+        runtime_input = (
+            execution_input
+            if execution_input is not None
+            else _derive_execution_input(df, label_column)
+        )
+        base_cols = {str(c) for c in runtime_input.columns}
+        if label_column is not None:
+            base_cols.discard(str(label_column))
 
-        for candidate in candidates:
-            prefix = f"is{candidate.island_id}_s{candidate.sample_order}"
+        if (candidates is None) == (selected_features is None):
+            raise ValueError("Exactly one of candidates or selected_features must be provided")
+
+        ordered_candidates: List[FeatureCandidate] = []
+        allowed_features_by_candidate: Dict[Tuple[int, int, str], Set[str]] = {}
+        cached_output_by_candidate: Dict[Tuple[int, int, str], pd.DataFrame] = {}
+        if selected_features is not None:
+            for item in selected_features:
+                key = _candidate_key(item.candidate)
+                if key not in allowed_features_by_candidate:
+                    allowed_features_by_candidate[key] = set()
+                    ordered_candidates.append(item.candidate)
+                allowed_features_by_candidate[key].add(_feature_name(item))
+                if item.output_df is not None and key not in cached_output_by_candidate:
+                    cached_output_by_candidate[key] = item.output_df
+        if candidates is not None:
+            ordered_candidates = candidates
+
+        for candidate in ordered_candidates:
             try:
-                out = _execute_candidate(candidate, df)
-                out = out.copy()
-                out.columns = [f"{prefix}_{col}" for col in out.columns]
+                key = _candidate_key(candidate)
+
+                cached_out = cached_output_by_candidate.get(key)
+                out = (
+                    cached_out
+                    if cached_out is not None
+                    else _execute_candidate(candidate, runtime_input)
+                )
+                out = _extract_generated_feature_frame(
+                    df_out=out,
+                    base_column_names=base_cols,
+                    label_column=label_column,
+                )
+                if selected_features is not None:
+                    allowed = allowed_features_by_candidate.get(key, set())
+                    allowed_mask = [c in allowed for c in out.columns]
+                    out = out.loc[:, allowed_mask]
                 generated_parts.append(out)
                 metadata_rows.append(
                     {
@@ -519,6 +605,7 @@ class FeatureExtractionPipeline:
                         "sample_order": candidate.sample_order,
                         "score": candidate.score,
                         "source_file": candidate.source_file,
+                        "generated_columns": list(out.columns),
                         "status": "success",
                         "error": None,
                     }
@@ -551,13 +638,9 @@ class FeatureExtractionPipeline:
                 parts.append(df.copy())
         parts.append(generated_df)
 
-        if label_series is not None:
-            parts.append(label_series.to_frame(name=label_column))
-
         final_df = pd.concat(parts, axis=1)
-        if label_series is not None and final_df.columns[-1] != label_column:
-            label_values = final_df.pop(label_column)
-            final_df[label_column] = label_values
+        if label_series is not None:
+            final_df[label_column] = label_series.values
 
         metadata_df = pd.DataFrame(metadata_rows)
         return final_df, metadata_df

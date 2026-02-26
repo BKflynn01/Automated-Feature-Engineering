@@ -7,10 +7,8 @@ from ga_optimizer.evolve.preprocess import (
     ExecutedCandidate,
     FeatureCandidate,
     FeatureExtractionPipeline,
-    dedup_stage_by_exact_code,
     dedup_stage_by_output_columns,
     dedup_stage_by_semantic_hash,
-    deduplicate_candidates,
     deduplicate_candidates_multistage,
     load_candidates,
     select_top_k_per_island,
@@ -122,17 +120,6 @@ def test_select_top_k_per_island():
     assert sorted(by_island[2], reverse=True) == [0.7, 0.2]
 
 
-def test_deduplicate_candidates_keeps_highest_score():
-    candidates = [
-        FeatureCandidate(1, 0.2, "def modify_features(df):\n    return df", 2, "a.json"),
-        FeatureCandidate(2, 0.9, "def modify_features(df):\n    return df", 1, "b.json"),
-    ]
-    deduped = deduplicate_candidates(candidates)
-    assert len(deduped) == 1
-    assert deduped[0].score == 0.9
-    assert deduped[0].island_id == 2
-
-
 def test_build_full_dataframe_keeps_label_last():
     df = pd.DataFrame({"x": [1, 2], "y": [10, 20], "target": [0, 1]})
     candidates = [
@@ -159,9 +146,10 @@ def test_build_full_dataframe_keeps_label_last():
 
     assert out_df.columns[-1] == "target"
     assert "target" in out_df.columns
-    assert any(col.startswith("is1_s11_") for col in out_df.columns)
+    assert "x_plus_y" in out_df.columns
     assert len(meta) == 1
     assert meta.iloc[0]["status"] == "success"
+    assert meta.iloc[0]["generated_columns"] == ["x_plus_y"]
 
 
 def test_build_full_dataframe_records_failure():
@@ -286,8 +274,8 @@ def test_build_full_dataframe_compiles_and_runs_payload_function():
 
     assert len(meta) == 1
     assert meta.iloc[0]["status"] == "success"
-    assert "is1_s16_log_return" in out_df.columns
-    assert "is1_s16_rsi" in out_df.columns
+    assert "log_return" in out_df.columns
+    assert "rsi" in out_df.columns
     assert out_df.shape[0] == df.shape[0]
 
 
@@ -306,24 +294,6 @@ def test_dedup_stage_by_output_columns_keeps_highest_score(tmp_path):
     assert dropped == 1
     assert len(survivors) == 1
     assert survivors[0].candidate.sample_order == 2
-
-
-def test_dedup_stage_by_exact_code_keeps_highest_score(tmp_path):
-    report_path = tmp_path / "stage2_report.txt"
-    code = "def modify_features(df):\n    return df[['x']]"
-    c1 = FeatureCandidate(1, 0.4, code, 2, "a.json")
-    c2 = FeatureCandidate(1, 0.8, code, 3, "b.json")
-    items = [
-        ExecutedCandidate(candidate=c1, output_columns=("a",), semantic_hash="h1"),
-        ExecutedCandidate(candidate=c2, output_columns=("b",), semantic_hash="h2"),
-    ]
-
-    with open(report_path, "w", encoding="utf-8") as report_file:
-        survivors, dropped = dedup_stage_by_exact_code(items, report_file)
-
-    assert dropped == 1
-    assert len(survivors) == 1
-    assert survivors[0].candidate.score == 0.8
 
 
 def test_dedup_stage_by_semantic_hash_keeps_highest_score(tmp_path):
@@ -387,7 +357,7 @@ def test_deduplicate_candidates_multistage_reports_all_stages(tmp_path, capsys):
 
     survivors, summary = deduplicate_candidates_multistage(
         candidates=candidates,
-        df_input=df,
+        execution_input=df,
         report_path=str(report_path),
         rounding_decimals=8,
     )
@@ -397,15 +367,58 @@ def test_deduplicate_candidates_multistage_reports_all_stages(tmp_path, capsys):
 
     assert summary["dropped_execute"] == 1
     assert summary["dropped_stage_1_columns"] == 1
-    assert summary["dropped_stage_3_semantic_hash"] == 2
+    assert summary["dropped_stage_2_semantic_hash"] == 2
     assert summary["total_survivors"] == 1
     assert len(survivors) == 1
-    assert survivors[0].source_file == "base.json"
-    assert "Dedup summary:" in captured.out
+    assert survivors[0].candidate.source_file == "base.json"
+    assert "Deduplication stage summary:" in captured.out
     assert "Dedup report path:" in captured.out
     assert "stage=execute action=dropped" in report_text
     assert "stage=dedup_columns action=dropped" in report_text
     assert "stage=dedup_semantic_hash action=dropped" in report_text
+
+
+def test_deduplicate_multistage_stage1_uses_generated_columns_only(tmp_path):
+    df = pd.DataFrame({"x": [1.0, 2.0], "y": [10.0, 20.0]})
+    report_path = tmp_path / "dedup_report_generated_only.txt"
+
+    c1 = FeatureCandidate(
+        island_id=1,
+        score=0.9,
+        function_code=(
+            "def modify_features(df):\n"
+            "    out = df.copy()\n"
+            "    out['feat'] = out['x'] + out['y']\n"
+            "    return out\n"
+        ),
+        sample_order=1,
+        source_file="a.json",
+    )
+    c2 = FeatureCandidate(
+        island_id=2,
+        score=0.8,
+        function_code=(
+            "def modify_features(df):\n"
+            "    out = df.copy()\n"
+            "    out['feat'] = out['x'] + out['y']\n"
+            "    out = out[['y', 'x', 'feat']]\n"
+            "    return out\n"
+        ),
+        sample_order=2,
+        source_file="b.json",
+    )
+
+    survivors, summary = deduplicate_candidates_multistage(
+        candidates=[c1, c2],
+        execution_input=df,
+        report_path=str(report_path),
+        rounding_decimals=8,
+    )
+
+    report_text = report_path.read_text(encoding="utf-8")
+    assert len(survivors) == 1
+    assert summary["dropped_stage_1_columns"] == 1
+    assert "column_signature_scope=feature_level_generated_only" in report_text
 
 
 def test_pipeline_run_writes_filtered_manifest_and_report(tmp_path):
@@ -436,12 +449,205 @@ def test_pipeline_run_writes_filtered_manifest_and_report(tmp_path):
 
     out_df, meta = pipeline.run(df, dataset_name="demo")
 
-    data_dir = tmp_path / "data"
+    data_dir = tmp_path / "data" / "demo"
     report_path = data_dir / "dedup_report_demo.txt"
-    filtered_path = data_dir / "filtered_demo.csv"
+    filtered_path = data_dir / "top_1_samples.csv"
 
     assert "target" == out_df.columns[-1]
     assert len(meta) == 1
     assert meta.iloc[0]["status"] == "success"
     assert report_path.exists()
     assert filtered_path.exists()
+
+
+def test_build_full_dataframe_short_names_collision_and_new_cols_only():
+    df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
+    candidates = [
+        FeatureCandidate(
+            island_id=1,
+            score=0.9,
+            function_code=(
+                "def modify_features(df):\n"
+                "    out = pd.DataFrame(index=df.index)\n"
+                "    out['x'] = df['x'] * 10\n"
+                "    out['feat'] = df['x'] + 1\n"
+                "    return out\n"
+            ),
+            sample_order=11,
+            source_file="s11.json",
+        ),
+        FeatureCandidate(
+            island_id=2,
+            score=0.8,
+            function_code=(
+                "def modify_features(df):\n"
+                "    out = pd.DataFrame(index=df.index)\n"
+                "    out['feat'] = df['x'] + 2\n"
+                "    return out\n"
+            ),
+            sample_order=12,
+            source_file="s12.json",
+        ),
+    ]
+
+    out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
+        df=df,
+        candidates=candidates,
+        label_column="target",
+        include_original=True,
+    )
+
+    assert "x" in out_df.columns
+    assert "feat" in out_df.columns
+    assert (out_df.columns == "feat").sum() == 2
+    assert out_df.columns.tolist() == ["x", "feat", "feat", "target"]
+
+    assert len(meta) == 2
+    assert meta.iloc[0]["generated_columns"] == ["feat"]
+    assert meta.iloc[1]["generated_columns"] == ["feat"]
+
+
+def test_build_full_dataframe_excludes_label_from_generated_and_keeps_single_label_last():
+    df = pd.DataFrame({"x": [1, 2, 3], "target": [0, 1, 0]})
+    candidates = [
+        FeatureCandidate(
+            island_id=1,
+            score=0.9,
+            function_code=(
+                "def modify_features(df):\n"
+                "    out = df.copy()\n"
+                "    out['feat'] = df['x'] + 10\n"
+                "    return out\n"
+            ),
+            sample_order=1,
+            source_file="s1.json",
+        )
+    ]
+
+    out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
+        df=df,
+        candidates=candidates,
+        label_column="target",
+        include_original=True,
+    )
+
+    assert out_df.columns.tolist() == ["x", "feat", "target"]
+    assert (out_df.columns == "target").sum() == 1
+    assert out_df.columns[-1] == "target"
+    assert meta.iloc[0]["status"] == "success"
+
+
+def test_build_full_dataframe_uses_cached_selected_feature_outputs(monkeypatch):
+    df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
+    candidate = FeatureCandidate(
+        island_id=1,
+        score=0.9,
+        function_code=(
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['feat'] = df['x'] + 100\n"
+            "    return out\n"
+        ),
+        sample_order=1,
+        source_file="cached.json",
+    )
+    cached_out = pd.DataFrame({"feat": [10, 20]}, index=df.index)
+    selected_features = [
+        ExecutedCandidate(
+            candidate=candidate,
+            output_columns=("feat",),
+            semantic_hash="cached_hash",
+            output_df=cached_out,
+        )
+    ]
+
+    def _should_not_execute(*_args, **_kwargs):
+        raise AssertionError("_execute_candidate should not be called when cached output_df is available")
+
+    monkeypatch.setattr("ga_optimizer.evolve.preprocess._execute_candidate", _should_not_execute)
+
+    out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
+        df=df,
+        selected_features=selected_features,
+        label_column="target",
+        include_original=True,
+        execution_input=df.drop(columns=["target"]),
+    )
+
+    assert out_df.columns.tolist() == ["x", "feat", "target"]
+    assert out_df["feat"].tolist() == [10, 20]
+    assert meta.iloc[0]["status"] == "success"
+
+
+def test_build_full_dataframe_requires_exactly_one_input_mode():
+    df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
+    candidate = FeatureCandidate(
+        island_id=1,
+        score=0.9,
+        function_code=(
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['feat'] = df['x'] + 1\n"
+            "    return out\n"
+        ),
+        sample_order=1,
+        source_file="s1.json",
+    )
+    selected_features = [
+        ExecutedCandidate(
+            candidate=candidate,
+            output_columns=("feat",),
+            semantic_hash="h1",
+            output_df=pd.DataFrame({"feat": [2, 3]}, index=df.index),
+        )
+    ]
+
+    with pytest.raises(
+        ValueError, match="Exactly one of candidates or selected_features must be provided"
+    ):
+        FeatureExtractionPipeline.build_full_dataframe(
+            df=df,
+            label_column="target",
+            include_original=True,
+        )
+
+    with pytest.raises(
+        ValueError, match="Exactly one of candidates or selected_features must be provided"
+    ):
+        FeatureExtractionPipeline.build_full_dataframe(
+            df=df,
+            candidates=[candidate],
+            selected_features=selected_features,
+            label_column="target",
+            include_original=True,
+        )
+
+
+def test_pipeline_run_without_label_column_does_not_infer_last_column(tmp_path):
+    samples_dir = tmp_path / "samples"
+    samples_dir.mkdir()
+    payload = {
+        "island_id": 1,
+        "score": 0.9,
+        "sample_order": 1,
+        "function_code": (
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['f'] = df['x'] + 1\n"
+            "    return out\n"
+        ),
+    }
+    with open(samples_dir / "a.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    df = pd.DataFrame({"x": [1, 2, 3], "target": [0, 1, 0]})
+    pipeline = FeatureExtractionPipeline(
+        samples_dir=str(samples_dir),
+        k_per_island=1,
+        label_column=None,
+        include_original=True,
+        data_dir=str(tmp_path / "data"),
+    )
+
+    out_df, _meta = pipeline.run(df, dataset_name="demo_no_label")
+    assert out_df.columns.tolist() == ["x", "target", "f"]
