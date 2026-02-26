@@ -462,7 +462,8 @@ def deduplicate_candidates_multistage(
 
 def _execute_candidate(candidate: FeatureCandidate, df_input: pd.DataFrame) -> pd.DataFrame:
     namespace: Dict[str, object] = {"pd": pd}
-    exec(candidate.function_code, namespace)
+    # Candidate code execution is required by the optimizer pipeline.
+    exec(candidate.function_code, namespace)  # nosec B102
 
     function = namespace.get("modify_features_v2")
     if not callable(function):

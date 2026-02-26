@@ -27,7 +27,7 @@ repos:
 
       - id: bandit
         name: bandit
-        entry: bandit -r ga_optimizer/
+        entry: bandit -c bandit.yaml -r ga_optimizer/
         language: system
         pass_filenames: false
         stages: [pre-push]

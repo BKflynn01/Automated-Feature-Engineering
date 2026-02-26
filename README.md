@@ -52,7 +52,7 @@ What this repository hook setup does:
 - Runs `ruff check ga_optimizer/` before each push.
 - Runs `black --check ga_optimizer/` before each push.
 - Runs `mypy ga_optimizer/` before each push.
-- Runs `bandit -r ga_optimizer/` before each push.
+- Runs `bandit -c bandit.yaml -r ga_optimizer/` before each push (`B102`/`exec` check skipped).
 - Runs `pytest` (with coverage) before each push.
 
 ## 🔧 Usage
