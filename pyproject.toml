@@ -2,6 +2,13 @@
 line-length = 100
 target-version = ['py311']
 
+[tool.ruff]
+line-length = 100
+target-version = 'py311'
+
+[tool.ruff.lint]
+ignore = ['E203', 'E501', 'W503']
+
 [tool.isort]
 profile = 'black'
 line_length = 100

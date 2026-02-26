@@ -39,6 +39,22 @@ conda activate llmfe
 pip install -r requirements.txt
 ```
 
+## ✅ Auto Lint/Format Before Push
+To automatically run formatting and lint checks before code leaves your machine:
+
+```
+pip install -r requirements-dev.txt
+pre-commit install --hook-type pre-push
+pre-commit run --all-files --hook-stage pre-push
+```
+
+What this repository hook setup does:
+- Runs `ruff check ga_optimizer/` before each push.
+- Runs `black --check ga_optimizer/` before each push.
+- Runs `mypy ga_optimizer/` before each push.
+- Runs `bandit -r ga_optimizer/` before each push.
+- Runs `pytest` (with coverage) before each push.
+
 ## 🔧 Usage
 Set the API key in run_llmfe.sh:
 ```
