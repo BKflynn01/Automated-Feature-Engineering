@@ -4,8 +4,13 @@ import pandas as pd
 import pytest
 
 from ga_optimizer.evolve.preprocess import (
+    ExecutedCandidate,
     FeatureCandidate,
     FeatureExtractionPipeline,
+    dedup_stage_by_exact_code,
+    dedup_stage_by_output_columns,
+    dedup_stage_by_semantic_hash,
+    deduplicate_candidates_multistage,
     deduplicate_candidates,
     load_candidates,
     select_top_k_per_island,
@@ -47,6 +52,58 @@ def test_load_candidates_supports_function_and_function_code(sample_dir):
     candidates = load_candidates(str(sample_dir))
     assert len(candidates) == 2
     assert all(isinstance(c, FeatureCandidate) for c in candidates)
+
+
+def test_load_candidates_supports_problem_root_with_multiple_splits(tmp_path):
+    problem_root = tmp_path / "problem"
+    split1_samples = problem_root / "problem_split_1" / "samples"
+    split2_samples = problem_root / "problem_split_2" / "samples"
+    split1_samples.mkdir(parents=True)
+    split2_samples.mkdir(parents=True)
+
+    _write_sample(
+        split1_samples / "a.json",
+        {
+            "island_id": 1,
+            "score": 0.4,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 1,
+        },
+    )
+    _write_sample(
+        split2_samples / "b.json",
+        {
+            "island_id": 2,
+            "score": 0.5,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 2,
+        },
+    )
+
+    candidates = load_candidates(str(problem_root))
+    assert len(candidates) == 2
+    source_files = {c.source_file for c in candidates}
+    assert "problem_split_1/samples/a.json" in source_files
+    assert "problem_split_2/samples/b.json" in source_files
+
+
+def test_load_candidates_supports_split_root_directory(tmp_path):
+    split_root = tmp_path / "btc_gpt_4o_mini_split_2"
+    samples_dir = split_root / "samples"
+    samples_dir.mkdir(parents=True)
+    _write_sample(
+        samples_dir / "samples_16.json",
+        {
+            "island_id": 1,
+            "score": 0.77,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 16,
+        },
+    )
+
+    candidates = load_candidates(str(split_root))
+    assert len(candidates) == 1
+    assert candidates[0].source_file == "samples/samples_16.json"
 
 
 def test_select_top_k_per_island():
@@ -130,3 +187,261 @@ def test_build_full_dataframe_records_failure():
     assert len(meta) == 1
     assert meta.iloc[0]["status"] == "failed"
     assert "DataFrame" in meta.iloc[0]["error"]
+
+
+def test_build_full_dataframe_compiles_and_runs_payload_function():
+    df = pd.DataFrame(
+        {
+            "close": [100.0, 101.0, 102.5, 101.2, 103.0, 104.1],
+            "high": [101.0, 102.0, 103.0, 102.0, 104.0, 105.0],
+            "low": [99.0, 100.0, 101.5, 100.0, 102.0, 103.0],
+            "volume": [1000, 1100, 1050, 1200, 1300, 1250],
+            "fng_value": [35, 40, 45, 30, 25, 50],
+        }
+    )
+
+    function_code = (
+        "def modify_features(df_input) -> pd.DataFrame:\n"
+        "    \"\"\"\n"
+        "    Thought 1: Thought 1: Capture intraday panic (High/Low) and liquidity (Price*Vol) using stationary log-transforms to normalize data across all price regimes.\n"
+        "    \"\"\"\n"
+        "    import pandas as pd\n"
+        "    import numpy as np\n"
+        "    \"\"\"\n"
+        "    This program captures market psychology and supply/demand imbalances through stationary features, enhancing predictive power for next-day Bitcoin price movements.\n"
+        "    \"\"\"\n"
+        "    import numpy as np\n"
+        "    import pandas as pd\n"
+        "    \n"
+        "    df_output = df_input.copy()\n"
+        "    \n"
+        "    # 1. Log Returns (Stationary Price Change)\n"
+        "    df_output['log_return'] = np.log(df_output['close'] / df_output['close'].shift(1)).fillna(0)\n"
+        "\n"
+        "    # 2. Distance from 50-day Moving Average (%)\n"
+        "    df_output['distance_from_50ma'] = (df_output['close'] - df_output['close'].rolling(window=50).mean()) / df_output['close'].rolling(window=50).mean()\n"
+        "\n"
+        "    # 3. Bollinger Band Width (Volatility Regime)\n"
+        "    rolling_std = df_output['close'].rolling(window=20).std()\n"
+        "    rolling_mean = df_output['close'].rolling(window=20).mean()\n"
+        "    df_output['bollinger_band_width'] = (rolling_mean + 2 * rolling_std - (rolling_mean - 2 * rolling_std)) / rolling_mean\n"
+        "\n"
+        "    # 4. Average True Range (ATR) as a Volatility Proxy\n"
+        "    high_low = df_output['high'] - df_output['low']\n"
+        "    high_prev_close = np.abs(df_output['high'] - df_output['close'].shift(1))\n"
+        "    low_prev_close = np.abs(df_output['low'] - df_output['close'].shift(1))\n"
+        "    true_range = pd.DataFrame({'high_low': high_low, 'high_prev_close': high_prev_close, 'low_prev_close': low_prev_close}).max(axis=1)\n"
+        "    df_output['atr'] = true_range.rolling(window=14).mean()\n"
+        "\n"
+        "    # 5. Volume-Weighted Price Change\n"
+        "    df_output['volume_weighted_change'] = (df_output['close'] * df_output['volume']) / df_output['volume'].rolling(window=14).sum()\n"
+        "\n"
+        "    # 6. Z-Score of Fear & Greed Index\n"
+        "    df_output['fng_zscore'] = (df_output['fng_value'] - df_output['fng_value'].rolling(window=14).mean()) / df_output['fng_value'].rolling(window=14).std()\n"
+        "\n"
+        "    # 7. Volume Confirmation (Price * Volume)\n"
+        "    df_output['price_volume'] = df_output['close'] * df_output['volume']\n"
+        "\n"
+        "    # 8. Support/Resistance Proxies (Rolling Max/Min)\n"
+        "    df_output['rolling_max'] = df_output['close'].rolling(window=20).max()\n"
+        "    df_output['rolling_min'] = df_output['close'].rolling(window=20).min()\n"
+        "\n"
+        "    # 9. Overbought/Oversold Indicator (RSI)\n"
+        "    delta = df_output['close'].diff()\n"
+        "    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()\n"
+        "    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()\n"
+        "    rs = gain / loss\n"
+        "    df_output['rsi'] = 100 - (100 / (1 + rs))\n"
+        "\n"
+        "    # 10. Sentiment Divergence: Trigger when sentiment is extreme but price is stable\n"
+        "    df_output['sentiment_divergence'] = ((df_output['fng_value'] < 25) & (df_output['close'] > df_output['close'].rolling(window=5).mean())).fillna(False).astype(int)\n"
+        "\n"
+        "    # 11. Price Momentum: 5-day price change\n"
+        "    df_output['momentum_5d'] = (df_output['close'] - df_output['close'].shift(5)) / df_output['close'].shift(5)\n"
+        "\n"
+        "    # 12. Price Change vs Volume Change: Ratio of log returns to log volume change\n"
+        "    df_output['price_volume_ratio'] = df_output['log_return'] / np.log(df_output['volume'] + 1).fillna(0)\n"
+        "\n"
+        "    # Fill NaNs for the new features\n"
+        "    df_output.fillna(0, inplace=True)\n"
+        "\n"
+        "    return df_output\n"
+    )
+
+    candidates = [
+        FeatureCandidate(
+            island_id=1,
+            score=-1.1609591118086777,
+            function_code=function_code,
+            sample_order=16,
+            source_file="payload.json",
+        )
+    ]
+
+    out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
+        df=df,
+        candidates=candidates,
+        include_original=False,
+    )
+
+    assert len(meta) == 1
+    assert meta.iloc[0]["status"] == "success"
+    assert "is1_s16_log_return" in out_df.columns
+    assert "is1_s16_rsi" in out_df.columns
+    assert out_df.shape[0] == df.shape[0]
+
+
+def test_dedup_stage_by_output_columns_keeps_highest_score(tmp_path):
+    report_path = tmp_path / "stage1_report.txt"
+    c1 = FeatureCandidate(1, 0.7, "a", 1, "a.json")
+    c2 = FeatureCandidate(1, 0.9, "b", 2, "b.json")
+    items = [
+        ExecutedCandidate(candidate=c1, output_columns=("x", "y"), semantic_hash="h1"),
+        ExecutedCandidate(candidate=c2, output_columns=("x", "y"), semantic_hash="h2"),
+    ]
+
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        survivors, dropped = dedup_stage_by_output_columns(items, report_file)
+
+    assert dropped == 1
+    assert len(survivors) == 1
+    assert survivors[0].candidate.sample_order == 2
+
+
+def test_dedup_stage_by_exact_code_keeps_highest_score(tmp_path):
+    report_path = tmp_path / "stage2_report.txt"
+    code = "def modify_features(df):\n    return df[['x']]"
+    c1 = FeatureCandidate(1, 0.4, code, 2, "a.json")
+    c2 = FeatureCandidate(1, 0.8, code, 3, "b.json")
+    items = [
+        ExecutedCandidate(candidate=c1, output_columns=("a",), semantic_hash="h1"),
+        ExecutedCandidate(candidate=c2, output_columns=("b",), semantic_hash="h2"),
+    ]
+
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        survivors, dropped = dedup_stage_by_exact_code(items, report_file)
+
+    assert dropped == 1
+    assert len(survivors) == 1
+    assert survivors[0].candidate.score == 0.8
+
+
+def test_dedup_stage_by_semantic_hash_keeps_highest_score(tmp_path):
+    report_path = tmp_path / "stage3_report.txt"
+    c1 = FeatureCandidate(1, 0.6, "a", 1, "a.json")
+    c2 = FeatureCandidate(1, 0.95, "b", 2, "b.json")
+    items = [
+        ExecutedCandidate(candidate=c1, output_columns=("x",), semantic_hash="same"),
+        ExecutedCandidate(candidate=c2, output_columns=("y",), semantic_hash="same"),
+    ]
+
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        survivors, dropped = dedup_stage_by_semantic_hash(items, report_file)
+
+    assert dropped == 1
+    assert len(survivors) == 1
+    assert survivors[0].candidate.sample_order == 2
+
+
+def test_deduplicate_candidates_multistage_reports_all_stages(tmp_path, capsys):
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [10.0, 20.0, 30.0, 40.0]})
+    report_path = tmp_path / "dedup_report.txt"
+
+    base = (
+        "def modify_features(df):\n"
+        "    out = pd.DataFrame(index=df.index)\n"
+        "    out['same_name'] = df['x'] + df['y']\n"
+        "    return out\n"
+    )
+    # Different function body, same output column name signature => dropped in stage 1.
+    stage1_clash = (
+        "def modify_features(df):\n"
+        "    out = pd.DataFrame(index=df.index)\n"
+        "    out['same_name'] = (df['x'] * 2.0) + (df['y'] * 0.0)\n"
+        "    return out\n"
+    )
+    # Name changed, so this gets past stage 1; same computation as base => stage 3 drop.
+    semantic_same_1 = (
+        "def modify_features(df):\n"
+        "    out = pd.DataFrame(index=df.index)\n"
+        "    out['different_name_1'] = (df['x'] + df['y'])\n"
+        "    return out\n"
+    )
+    # Name changed + floating representation tweak, same values at 8 decimals => stage 3 drop.
+    semantic_same_2 = (
+        "def modify_features(df):\n"
+        "    out = pd.DataFrame(index=df.index)\n"
+        "    out['different_name_2'] = (df['x'] + df['y']) + 1e-12\n"
+        "    return out\n"
+    )
+    # Invalid candidate to verify execution-stage drop and reporting.
+    execution_fail = "def modify_features(df):\n    return 123\n"
+
+    candidates = [
+        FeatureCandidate(1, 0.90, base, 1, "base.json"),
+        FeatureCandidate(1, 0.80, stage1_clash, 2, "stage1.json"),
+        FeatureCandidate(1, 0.70, semantic_same_1, 3, "semantic1.json"),
+        FeatureCandidate(1, 0.60, semantic_same_2, 4, "semantic2.json"),
+        FeatureCandidate(1, 0.50, execution_fail, 5, "bad.json"),
+    ]
+
+    survivors, summary = deduplicate_candidates_multistage(
+        candidates=candidates,
+        df_input=df,
+        report_path=str(report_path),
+        rounding_decimals=8,
+    )
+
+    captured = capsys.readouterr()
+    report_text = report_path.read_text(encoding="utf-8")
+
+    assert summary["dropped_execute"] == 1
+    assert summary["dropped_stage_1_columns"] == 1
+    assert summary["dropped_stage_3_semantic_hash"] == 2
+    assert summary["total_survivors"] == 1
+    assert len(survivors) == 1
+    assert survivors[0].source_file == "base.json"
+    assert "Dedup summary:" in captured.out
+    assert "Dedup report path:" in captured.out
+    assert "stage=execute action=dropped" in report_text
+    assert "stage=dedup_columns action=dropped" in report_text
+    assert "stage=dedup_semantic_hash action=dropped" in report_text
+
+
+def test_pipeline_run_writes_filtered_manifest_and_report(tmp_path):
+    samples_dir = tmp_path / "samples"
+    samples_dir.mkdir()
+    payload = {
+        "island_id": 1,
+        "score": 0.9,
+        "sample_order": 1,
+        "function_code": (
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['f'] = df['x'] + 1\n"
+            "    return out\n"
+        ),
+    }
+    with open(samples_dir / "a.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    df = pd.DataFrame({"x": [1, 2, 3], "target": [0, 1, 0]})
+    pipeline = FeatureExtractionPipeline(
+        samples_dir=str(samples_dir),
+        k_per_island=1,
+        label_column="target",
+        include_original=True,
+        data_dir=str(tmp_path / "data"),
+    )
+
+    out_df, meta = pipeline.run(df, dataset_name="demo")
+
+    data_dir = tmp_path / "data"
+    report_path = data_dir / "dedup_report_demo.txt"
+    filtered_path = data_dir / "filtered_demo.csv"
+
+    assert "target" == out_df.columns[-1]
+    assert len(meta) == 1
+    assert meta.iloc[0]["status"] == "success"
+    assert report_path.exists()
+    assert filtered_path.exists()

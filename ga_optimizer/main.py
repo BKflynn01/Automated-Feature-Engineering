@@ -89,7 +89,7 @@ def main() -> None:
         include_original=not args.exclude_original,
     )
 
-    final_df, metadata_df = pipeline.run(df)
+    final_df, metadata_df = pipeline.run(df, dataset_name=input_path.stem)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
