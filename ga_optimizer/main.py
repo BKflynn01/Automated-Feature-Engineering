@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from ga_optimizer.config import DEFAULT_GA_CONFIG
 from ga_optimizer.evolve.preprocess import FeatureExtractionPipeline
 
 
@@ -36,15 +37,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--use_last_column_as_label",
         action="store_true",
+        default=DEFAULT_GA_CONFIG.main.default_use_last_column_as_label,
         help="Treat the last input column as label when --label_column is not set",
     )
-    parser.add_argument("--k_per_island", type=int, default=2, help="Top-k candidates per island")
+    parser.add_argument(
+        "--k_per_island",
+        type=int,
+        default=DEFAULT_GA_CONFIG.main.default_k_per_island,
+        help="Top-k candidates per island",
+    )
     parser.add_argument(
         "--exclude_original",
         action="store_true",
+        default=DEFAULT_GA_CONFIG.main.default_exclude_original,
         help="If set, output contains generated features (and label if available), not original features",
     )
-    parser.add_argument("--sep", default=",", help="CSV delimiter for input/output (default: ',')")
+    parser.add_argument(
+        "--sep",
+        default=DEFAULT_GA_CONFIG.main.default_sep,
+        help="CSV delimiter for input/output (default: ',')",
+    )
     return parser.parse_args()
 
 

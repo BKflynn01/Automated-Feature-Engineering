@@ -1,3 +1,14 @@
+from ga_optimizer.config import (
+    DEFAULT_GA_CONFIG,
+    CandidateLoadConfig,
+    DedupConfig,
+    ExecutionConfig,
+    GADataConfig,
+    GAOptimizerConfig,
+    MainConfig,
+    OutputConfig,
+    SelectionConfig,
+)
 from ga_optimizer.evolve.preprocess import (
     ExecutedCandidate,
     FeatureCandidate,
@@ -10,6 +21,15 @@ from ga_optimizer.evolve.preprocess import (
 )
 
 __all__ = [
+    "DEFAULT_GA_CONFIG",
+    "CandidateLoadConfig",
+    "DedupConfig",
+    "ExecutionConfig",
+    "GADataConfig",
+    "GAOptimizerConfig",
+    "MainConfig",
+    "OutputConfig",
+    "SelectionConfig",
     "ExecutedCandidate",
     "FeatureCandidate",
     "FeatureExtractionPipeline",

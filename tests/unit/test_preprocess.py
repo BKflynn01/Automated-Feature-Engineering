@@ -1,8 +1,17 @@
 import json
+from dataclasses import replace
 
 import pandas as pd
 import pytest
 
+from ga_optimizer.config import (
+    CandidateLoadConfig,
+    DEFAULT_GA_CONFIG,
+    DedupConfig,
+    ExecutionConfig,
+    OutputConfig,
+    SelectionConfig,
+)
 from ga_optimizer.evolve.preprocess import (
     ExecutedCandidate,
     FeatureCandidate,
@@ -104,6 +113,30 @@ def test_load_candidates_supports_split_root_directory(tmp_path):
     assert candidates[0].source_file == "samples/samples_16.json"
 
 
+def test_load_candidates_honors_configured_json_glob_patterns(tmp_path):
+    root = tmp_path / "candidate_root"
+    custom_dir = root / "custom"
+    custom_dir.mkdir(parents=True)
+    _write_sample(
+        custom_dir / "c.json",
+        {
+            "island_id": 1,
+            "score": 0.77,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 3,
+        },
+    )
+
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        candidate_load=CandidateLoadConfig(json_glob_patterns=("custom/*.json",)),
+    )
+    candidates = load_candidates(str(root), config=config)
+
+    assert len(candidates) == 1
+    assert candidates[0].source_file == "custom/c.json"
+
+
 def test_select_top_k_per_island():
     candidates = [
         FeatureCandidate(1, 0.10, "a", 1, "a.json"),
@@ -118,6 +151,21 @@ def test_select_top_k_per_island():
         by_island.setdefault(c.island_id, []).append(c.score)
     assert sorted(by_island[1], reverse=True) == [0.9, 0.8]
     assert sorted(by_island[2], reverse=True) == [0.7, 0.2]
+
+
+def test_select_top_k_per_island_uses_config_default_when_k_not_provided():
+    candidates = [
+        FeatureCandidate(1, 0.10, "a", 1, "a.json"),
+        FeatureCandidate(1, 0.90, "b", 2, "b.json"),
+        FeatureCandidate(2, 0.70, "d", 1, "d.json"),
+        FeatureCandidate(2, 0.20, "e", 2, "e.json"),
+    ]
+    config = replace(DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1))
+
+    selected = select_top_k_per_island(candidates, config=config)
+
+    assert len(selected) == 2
+    assert {(c.island_id, c.score) for c in selected} == {(1, 0.9), (2, 0.7)}
 
 
 def test_build_full_dataframe_keeps_label_last():
@@ -651,3 +699,161 @@ def test_pipeline_run_without_label_column_does_not_infer_last_column(tmp_path):
 
     out_df, _meta = pipeline.run(df, dataset_name="demo_no_label")
     assert out_df.columns.tolist() == ["x", "target", "f"]
+
+
+def test_deduplicate_candidates_multistage_uses_configured_rounding(tmp_path):
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+    report_path = tmp_path / "dedup_rounding_report.txt"
+    config = replace(DEFAULT_GA_CONFIG, dedup=DedupConfig(rounding_decimals=3))
+
+    candidates = [
+        FeatureCandidate(
+            island_id=1,
+            score=0.9,
+            function_code=(
+                "def modify_features(df):\n"
+                "    out = pd.DataFrame(index=df.index)\n"
+                "    out['feat_a'] = df['x'] + 0.12344\n"
+                "    return out\n"
+            ),
+            sample_order=1,
+            source_file="a.json",
+        ),
+        FeatureCandidate(
+            island_id=1,
+            score=0.8,
+            function_code=(
+                "def modify_features(df):\n"
+                "    out = pd.DataFrame(index=df.index)\n"
+                "    out['feat_b'] = df['x'] + 0.12346\n"
+                "    return out\n"
+            ),
+            sample_order=2,
+            source_file="b.json",
+        ),
+    ]
+
+    survivors, summary = deduplicate_candidates_multistage(
+        candidates=candidates,
+        execution_input=df,
+        report_path=str(report_path),
+        config=config,
+    )
+
+    assert len(survivors) == 1
+    assert summary["dropped_stage_2_semantic_hash"] == 1
+
+
+def test_pipeline_run_uses_configured_output_templates(tmp_path):
+    samples_dir = tmp_path / "samples"
+    samples_dir.mkdir()
+    payload = {
+        "island_id": 1,
+        "score": 0.9,
+        "sample_order": 1,
+        "function_code": (
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['f'] = df['x'] + 1\n"
+            "    return out\n"
+        ),
+    }
+    with open(samples_dir / "a.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        output=OutputConfig(
+            dedup_report_filename_template="report_{dataset_name}_{k_per_island}.txt",
+            manifest_filename_template="manifest_{dataset_name}_{k_per_island}.csv",
+            default_dataset_name="dataset",
+            default_data_dir_name="data",
+        ),
+    )
+    pipeline = FeatureExtractionPipeline(
+        samples_dir=str(samples_dir),
+        k_per_island=1,
+        label_column="target",
+        include_original=True,
+        data_dir=str(tmp_path / "data"),
+        config=config,
+    )
+
+    df = pd.DataFrame({"x": [1, 2, 3], "target": [0, 1, 0]})
+    pipeline.run(df, dataset_name="demo")
+
+    data_dir = tmp_path / "data" / "demo"
+    assert (data_dir / "report_demo_1.txt").exists()
+    assert (data_dir / "manifest_demo_1.csv").exists()
+
+
+def test_pipeline_run_raises_for_invalid_output_template(tmp_path):
+    samples_dir = tmp_path / "samples"
+    samples_dir.mkdir()
+    payload = {
+        "island_id": 1,
+        "score": 0.9,
+        "sample_order": 1,
+        "function_code": (
+            "def modify_features(df):\n"
+            "    out = pd.DataFrame(index=df.index)\n"
+            "    out['f'] = df['x'] + 1\n"
+            "    return out\n"
+        ),
+    }
+    with open(samples_dir / "a.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        output=OutputConfig(
+            dedup_report_filename_template="report_{missing}.txt",
+            manifest_filename_template="manifest_{k_per_island}.csv",
+            default_dataset_name="dataset",
+            default_data_dir_name="data",
+        ),
+    )
+    pipeline = FeatureExtractionPipeline(
+        samples_dir=str(samples_dir),
+        k_per_island=1,
+        label_column="target",
+        include_original=True,
+        data_dir=str(tmp_path / "data"),
+        config=config,
+    )
+    df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
+
+    with pytest.raises(
+        ValueError, match="Invalid dedup_report_filename_template: missing placeholder 'missing'"
+    ):
+        pipeline.run(df, dataset_name="demo")
+
+
+def test_build_full_dataframe_uses_configured_function_names():
+    df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
+    candidates = [
+        FeatureCandidate(
+            island_id=1,
+            score=0.9,
+            function_code=(
+                "def alt_modify(df):\n"
+                "    out = pd.DataFrame(index=df.index)\n"
+                "    out['feat'] = df['x'] + 1\n"
+                "    return out\n"
+            ),
+            sample_order=1,
+            source_file="alt.json",
+        )
+    ]
+    config = replace(DEFAULT_GA_CONFIG, execution=ExecutionConfig(preferred_function_names=("alt_modify",)))
+
+    out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
+        df=df,
+        candidates=candidates,
+        label_column="target",
+        include_original=True,
+        config=config,
+    )
+
+    assert out_df.columns.tolist() == ["x", "feat", "target"]
+    assert meta.iloc[0]["status"] == "success"

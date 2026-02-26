@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Set, TextIO, Tuple
 import numpy as np
 import pandas as pd
 
+from ga_optimizer.config import DEFAULT_GA_CONFIG, GAOptimizerConfig
+
 
 @dataclass
 class FeatureCandidate:
@@ -29,12 +31,15 @@ class ExecutedCandidate:
     output_df: Optional[pd.DataFrame] = None
 
 
-def load_candidates(samples_dir: str) -> List[FeatureCandidate]:
+def load_candidates(
+    samples_dir: str, config: Optional[GAOptimizerConfig] = None
+) -> List[FeatureCandidate]:
     """Load feature candidates from JSON files."""
     if not os.path.exists(samples_dir):
         raise ValueError(f"Sample directory {samples_dir} does not exist")
 
-    patterns = ("*.json", "samples/*.json", "*_split_*/samples/*.json")
+    resolved_config = config or DEFAULT_GA_CONFIG
+    patterns = resolved_config.candidate_load.json_glob_patterns
     files = sorted(
         {fpath for pattern in patterns for fpath in glob.glob(os.path.join(samples_dir, pattern))}
     )
@@ -114,10 +119,16 @@ def load_candidates(samples_dir: str) -> List[FeatureCandidate]:
 
 
 def select_top_k_per_island(
-    candidates: List[FeatureCandidate], k: int = 2
+    candidates: List[FeatureCandidate],
+    k: Optional[int] = None,
+    config: Optional[GAOptimizerConfig] = None,
 ) -> List[FeatureCandidate]:
     """Select top-k candidates per island by descending score."""
-    if k <= 0:
+    resolved_config = config or DEFAULT_GA_CONFIG
+    effective_k = (
+        k if k is not None else resolved_config.selection.default_top_k_per_island
+    )
+    if effective_k <= 0:
         raise ValueError("k must be > 0")
 
     by_island: Dict[int, List[FeatureCandidate]] = defaultdict(list)
@@ -131,7 +142,7 @@ def select_top_k_per_island(
             key=lambda c: (c.score, -c.sample_order),
             reverse=True,
         )
-        selected.extend(sorted_candidates[:k])
+        selected.extend(sorted_candidates[:effective_k])
     return selected
 
 
@@ -147,12 +158,18 @@ def _is_better_candidate(candidate: FeatureCandidate, current: FeatureCandidate)
     return False
 
 
-def _sample_output_for_semantic_hash(df_out: pd.DataFrame) -> pd.DataFrame:
+def _sample_output_for_semantic_hash(
+    df_out: pd.DataFrame, config: Optional[GAOptimizerConfig] = None
+) -> pd.DataFrame:
+    resolved_config = config or DEFAULT_GA_CONFIG
     n_rows = len(df_out.index)
     if n_rows == 0:
         return df_out.copy()
 
-    k = max(1, int(np.ceil(n_rows * 0.25)))
+    k = max(
+        resolved_config.dedup.semantic_min_rows,
+        int(np.ceil(n_rows * resolved_config.dedup.semantic_sample_fraction)),
+    )
     if 2 * k >= n_rows:
         return df_out.copy()
 
@@ -161,12 +178,27 @@ def _sample_output_for_semantic_hash(df_out: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([head, tail], axis=0)
 
 
-def _build_semantic_hash(df_out: pd.DataFrame, rounding_decimals: int = 8) -> str:
-    sampled = _sample_output_for_semantic_hash(df_out)
+def _build_semantic_hash(
+    df_out: pd.DataFrame,
+    rounding_decimals: Optional[int] = None,
+    config: Optional[GAOptimizerConfig] = None,
+) -> str:
+    resolved_config = config or DEFAULT_GA_CONFIG
+    effective_rounding = (
+        rounding_decimals
+        if rounding_decimals is not None
+        else resolved_config.dedup.rounding_decimals
+    )
+    sampled = _sample_output_for_semantic_hash(df_out, config=resolved_config)
     coerced = sampled.apply(pd.to_numeric, errors="coerce")
     arr = coerced.to_numpy(dtype=float, copy=False)
-    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-    arr = np.round(arr, decimals=rounding_decimals)
+    arr = np.nan_to_num(
+        arr,
+        nan=resolved_config.dedup.semantic_hash_nan_fill,
+        posinf=resolved_config.dedup.semantic_hash_posinf_fill,
+        neginf=resolved_config.dedup.semantic_hash_neginf_fill,
+    )
+    arr = np.round(arr, decimals=effective_rounding)
     payload = (
         f"shape={df_out.shape[0]}x{df_out.shape[1]}|sample={arr.shape[0]}x{arr.shape[1]}|".encode(
             "utf-8"
@@ -192,9 +224,15 @@ def _extract_generated_feature_frame(
     return generated_df
 
 
-def _build_feature_semantic_hash(series: pd.Series, rounding_decimals: int = 8) -> str:
+def _build_feature_semantic_hash(
+    series: pd.Series,
+    rounding_decimals: Optional[int] = None,
+    config: Optional[GAOptimizerConfig] = None,
+) -> str:
     return _build_semantic_hash(
-        series.to_frame(name="feature"), rounding_decimals=rounding_decimals
+        series.to_frame(name="feature"),
+        rounding_decimals=rounding_decimals,
+        config=config,
     )
 
 
@@ -216,6 +254,16 @@ def _append_report_line(report_file: TextIO, line: str) -> None:
     report_file.write(line + "\n")
 
 
+def _format_output_template(template: str, context: Dict[str, object], template_name: str) -> str:
+    try:
+        return template.format(**context)
+    except KeyError as exc:
+        missing_key = exc.args[0]
+        raise ValueError(
+            f"Invalid {template_name}: missing placeholder '{missing_key}'"
+        ) from exc
+
+
 def _derive_execution_input(df: pd.DataFrame, label_column: Optional[str]) -> pd.DataFrame:
     if label_column is not None and label_column in df.columns:
         return df.drop(columns=[label_column])
@@ -226,16 +274,18 @@ def execute_candidates_for_dedup(
     candidates: List[FeatureCandidate],
     df_input: pd.DataFrame,
     report_file: TextIO,
-    rounding_decimals: int = 8,
+    rounding_decimals: Optional[int] = None,
     label_column: Optional[str] = None,
+    config: Optional[GAOptimizerConfig] = None,
 ) -> Tuple[List[ExecutedCandidate], int]:
+    resolved_config = config or DEFAULT_GA_CONFIG
     executed: List[ExecutedCandidate] = []
     dropped_count = 0
     base_column_names = {str(c) for c in df_input.columns}
     for candidate in candidates:
         cid = _candidate_id(candidate)
         try:
-            df_out = _execute_candidate(candidate, df_input)
+            df_out = _execute_candidate(candidate, df_input, config=resolved_config)
             generated_df = _extract_generated_feature_frame(
                 df_out=df_out,
                 base_column_names=base_column_names,
@@ -247,7 +297,9 @@ def execute_candidates_for_dedup(
                         candidate=candidate,
                         output_columns=(str(col),),
                         semantic_hash=_build_feature_semantic_hash(
-                            series, rounding_decimals=rounding_decimals
+                            series,
+                            rounding_decimals=rounding_decimals,
+                            config=resolved_config,
                         ),
                         output_df=generated_df,
                     )
@@ -381,9 +433,16 @@ def deduplicate_candidates_multistage(
     candidates: List[FeatureCandidate],
     execution_input: pd.DataFrame,
     report_path: str,
-    rounding_decimals: int = 8,
+    rounding_decimals: Optional[int] = None,
     label_column: Optional[str] = None,
+    config: Optional[GAOptimizerConfig] = None,
 ) -> Tuple[List[ExecutedCandidate], Dict[str, int]]:
+    resolved_config = config or DEFAULT_GA_CONFIG
+    effective_rounding = (
+        rounding_decimals
+        if rounding_decimals is not None
+        else resolved_config.dedup.rounding_decimals
+    )
     summary = {
         "total_input_candidates": len(candidates),
         "total_input": 0,
@@ -404,8 +463,9 @@ def deduplicate_candidates_multistage(
         _append_report_line(
             report_file,
             (
-                f"config rounding_decimals={rounding_decimals} "
-                "semantic_window_policy=25pct_head_and_25pct_tail "
+                f"config rounding_decimals={effective_rounding} "
+                f"semantic_window_policy={resolved_config.dedup.semantic_sample_fraction:.2f}"
+                "_head_and_tail "
                 "column_signature_scope=feature_level_generated_only "
                 f"label_column={label_column}"
             ),
@@ -415,8 +475,9 @@ def deduplicate_candidates_multistage(
             candidates,
             df_input=execution_input,
             report_file=report_file,
-            rounding_decimals=rounding_decimals,
+            rounding_decimals=effective_rounding,
             label_column=label_column,
+            config=resolved_config,
         )
         summary["total_input"] = len(executed)
         summary["dropped_execute"] = dropped_execute
@@ -460,14 +521,22 @@ def deduplicate_candidates_multistage(
     return survivors, summary
 
 
-def _execute_candidate(candidate: FeatureCandidate, df_input: pd.DataFrame) -> pd.DataFrame:
+def _execute_candidate(
+    candidate: FeatureCandidate,
+    df_input: pd.DataFrame,
+    config: Optional[GAOptimizerConfig] = None,
+) -> pd.DataFrame:
+    resolved_config = config or DEFAULT_GA_CONFIG
     namespace: Dict[str, object] = {"pd": pd}
     # Candidate code execution is required by the optimizer pipeline.
     exec(candidate.function_code, namespace)  # nosec B102
 
-    function = namespace.get("modify_features_v2")
-    if not callable(function):
-        function = namespace.get("modify_features")
+    function = None
+    for function_name in resolved_config.execution.preferred_function_names:
+        candidate_function = namespace.get(function_name)
+        if callable(candidate_function):
+            function = candidate_function
+            break
     if not callable(function):
         raise ValueError("Candidate must define modify_features_v2 or modify_features")
 
@@ -483,13 +552,19 @@ class FeatureExtractionPipeline:
     def __init__(
         self,
         samples_dir: str,
-        k_per_island: int = 2,
+        k_per_island: Optional[int] = None,
         label_column: Optional[str] = None,
         include_original: bool = True,
         data_dir: Optional[str] = None,
+        config: Optional[GAOptimizerConfig] = None,
     ) -> None:
+        self.config = config or DEFAULT_GA_CONFIG
         self.samples_dir = samples_dir
-        self.k_per_island = k_per_island
+        self.k_per_island = (
+            k_per_island
+            if k_per_island is not None
+            else self.config.selection.default_top_k_per_island
+        )
         self.label_column = label_column
         self.include_original = include_original
         self.data_dir = data_dir
@@ -500,26 +575,40 @@ class FeatureExtractionPipeline:
         resolved_label_column = self.label_column
         execution_input = _derive_execution_input(df, resolved_label_column)
 
-        candidates = load_candidates(self.samples_dir)
+        candidates = load_candidates(self.samples_dir, config=self.config)
         islands = sorted({c.island_id for c in candidates})
         print(f"Loaded candidates: {len(candidates)}")
         print(f"Islands found: {len(islands)} ({', '.join(str(i) for i in islands)})")
-        selected = select_top_k_per_island(candidates, k=self.k_per_island)
+        selected = select_top_k_per_island(
+            candidates, k=self.k_per_island, config=self.config
+        )
         print(f"Selected after top-k per island (k={self.k_per_island}): {len(selected)}")
-        resolved_dataset_name = dataset_name or "dataset"
+        resolved_dataset_name = dataset_name or self.config.output.default_dataset_name
         data_root_dir = self.data_dir or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data"
+            os.path.dirname(os.path.dirname(__file__)),
+            self.config.output.default_data_dir_name,
         )
         data_dir = os.path.join(data_root_dir, resolved_dataset_name)
-        report_path = os.path.join(data_dir, f"dedup_report_{resolved_dataset_name}.txt")
+        report_name = _format_output_template(
+            self.config.output.dedup_report_filename_template,
+            {"dataset_name": resolved_dataset_name, "k_per_island": self.k_per_island},
+            template_name="dedup_report_filename_template",
+        )
+        report_path = os.path.join(data_dir, report_name)
         deduped_features, _ = deduplicate_candidates_multistage(
             selected,
             execution_input=execution_input,
             report_path=report_path,
-            rounding_decimals=8,
+            rounding_decimals=self.config.dedup.rounding_decimals,
             label_column=resolved_label_column,
+            config=self.config,
         )
-        filtered_manifest_path = os.path.join(data_dir, f"top_{self.k_per_island}_samples.csv")
+        manifest_name = _format_output_template(
+            self.config.output.manifest_filename_template,
+            {"dataset_name": resolved_dataset_name, "k_per_island": self.k_per_island},
+            template_name="manifest_filename_template",
+        )
+        filtered_manifest_path = os.path.join(data_dir, manifest_name)
         pd.DataFrame(
             [
                 {
@@ -540,6 +629,7 @@ class FeatureExtractionPipeline:
             label_column=resolved_label_column,
             include_original=self.include_original,
             execution_input=execution_input,
+            config=self.config,
         )
 
     @staticmethod
@@ -550,7 +640,9 @@ class FeatureExtractionPipeline:
         label_column: Optional[str] = None,
         include_original: bool = True,
         execution_input: Optional[pd.DataFrame] = None,
+        config: Optional[GAOptimizerConfig] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        resolved_config = config or DEFAULT_GA_CONFIG
         generated_parts: List[pd.DataFrame] = []
         metadata_rows: List[Dict[str, object]] = []
         runtime_input = (
@@ -588,7 +680,7 @@ class FeatureExtractionPipeline:
                 out = (
                     cached_out
                     if cached_out is not None
-                    else _execute_candidate(candidate, runtime_input)
+                    else _execute_candidate(candidate, runtime_input, config=resolved_config)
                 )
                 out = _extract_generated_feature_frame(
                     df_out=out,
