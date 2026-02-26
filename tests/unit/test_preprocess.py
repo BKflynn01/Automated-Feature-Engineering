@@ -10,8 +10,8 @@ from ga_optimizer.evolve.preprocess import (
     dedup_stage_by_exact_code,
     dedup_stage_by_output_columns,
     dedup_stage_by_semantic_hash,
-    deduplicate_candidates_multistage,
     deduplicate_candidates,
+    deduplicate_candidates_multistage,
     load_candidates,
     select_top_k_per_island,
 )
@@ -202,14 +202,14 @@ def test_build_full_dataframe_compiles_and_runs_payload_function():
 
     function_code = (
         "def modify_features(df_input) -> pd.DataFrame:\n"
-        "    \"\"\"\n"
+        '    """\n'
         "    Thought 1: Thought 1: Capture intraday panic (High/Low) and liquidity (Price*Vol) using stationary log-transforms to normalize data across all price regimes.\n"
-        "    \"\"\"\n"
+        '    """\n'
         "    import pandas as pd\n"
         "    import numpy as np\n"
-        "    \"\"\"\n"
+        '    """\n'
         "    This program captures market psychology and supply/demand imbalances through stationary features, enhancing predictive power for next-day Bitcoin price movements.\n"
-        "    \"\"\"\n"
+        '    """\n'
         "    import numpy as np\n"
         "    import pandas as pd\n"
         "    \n"

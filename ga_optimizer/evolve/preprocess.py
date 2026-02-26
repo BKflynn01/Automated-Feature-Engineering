@@ -461,7 +461,9 @@ class FeatureExtractionPipeline:
         self.include_original = include_original
         self.data_dir = data_dir
 
-    def run(self, df: pd.DataFrame, dataset_name: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def run(
+        self, df: pd.DataFrame, dataset_name: Optional[str] = None
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         candidates = load_candidates(self.samples_dir)
         selected = select_top_k_per_island(candidates, k=self.k_per_island)
         resolved_dataset_name = dataset_name or "dataset"
