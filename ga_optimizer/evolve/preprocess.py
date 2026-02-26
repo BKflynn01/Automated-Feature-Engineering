@@ -6,7 +6,7 @@ import json
 import os
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, TextIO, Tuple
+from typing import Callable, Dict, List, Optional, Set, TextIO, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -125,9 +125,7 @@ def select_top_k_per_island(
 ) -> List[FeatureCandidate]:
     """Select top-k candidates per island by descending score."""
     resolved_config = config or DEFAULT_GA_CONFIG
-    effective_k = (
-        k if k is not None else resolved_config.selection.default_top_k_per_island
-    )
+    effective_k = k if k is not None else resolved_config.selection.default_top_k_per_island
     if effective_k <= 0:
         raise ValueError("k must be > 0")
 
@@ -259,9 +257,7 @@ def _format_output_template(template: str, context: Dict[str, object], template_
         return template.format(**context)
     except KeyError as exc:
         missing_key = exc.args[0]
-        raise ValueError(
-            f"Invalid {template_name}: missing placeholder '{missing_key}'"
-        ) from exc
+        raise ValueError(f"Invalid {template_name}: missing placeholder '{missing_key}'") from exc
 
 
 def _derive_execution_input(df: pd.DataFrame, label_column: Optional[str]) -> pd.DataFrame:
@@ -531,13 +527,13 @@ def _execute_candidate(
     # Candidate code execution is required by the optimizer pipeline.
     exec(candidate.function_code, namespace)  # nosec B102
 
-    function = None
+    function: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None
     for function_name in resolved_config.execution.preferred_function_names:
         candidate_function = namespace.get(function_name)
         if callable(candidate_function):
-            function = candidate_function
+            function = cast(Callable[[pd.DataFrame], pd.DataFrame], candidate_function)
             break
-    if not callable(function):
+    if function is None:
         raise ValueError("Candidate must define modify_features_v2 or modify_features")
 
     df_out = function(df_input)
@@ -579,9 +575,7 @@ class FeatureExtractionPipeline:
         islands = sorted({c.island_id for c in candidates})
         print(f"Loaded candidates: {len(candidates)}")
         print(f"Islands found: {len(islands)} ({', '.join(str(i) for i in islands)})")
-        selected = select_top_k_per_island(
-            candidates, k=self.k_per_island, config=self.config
-        )
+        selected = select_top_k_per_island(candidates, k=self.k_per_island, config=self.config)
         print(f"Selected after top-k per island (k={self.k_per_island}): {len(selected)}")
         resolved_dataset_name = dataset_name or self.config.output.default_dataset_name
         data_root_dir = self.data_dir or os.path.join(
