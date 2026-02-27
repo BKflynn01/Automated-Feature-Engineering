@@ -51,6 +51,15 @@ class GADataConfig:
 
 
 @dataclass(frozen=True)
+class XGBRFConfig:
+    n_estimators: int = 100
+    subsample: float = 0.8
+    colsample_bynode: float = 0.8
+    random_state: int = 42
+    verbosity: int = 0
+
+
+@dataclass(frozen=True)
 class GAOptimizerConfig:
     main: MainConfig = field(default_factory=MainConfig)
     candidate_load: CandidateLoadConfig = field(default_factory=CandidateLoadConfig)
@@ -59,6 +68,7 @@ class GAOptimizerConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     ga_data: GADataConfig = field(default_factory=GADataConfig)
+    xgbrf: XGBRFConfig = field(default_factory=XGBRFConfig)
 
 
 DEFAULT_GA_CONFIG = GAOptimizerConfig()

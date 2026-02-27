@@ -8,6 +8,7 @@ from ga_optimizer.config import (
     MainConfig,
     OutputConfig,
     SelectionConfig,
+    XGBRFConfig,
 )
 from ga_optimizer.evolve.preprocess import (
     ExecutedCandidate,
@@ -19,6 +20,7 @@ from ga_optimizer.evolve.preprocess import (
     load_candidates,
     select_top_k_per_island,
 )
+from ga_optimizer.ga.evaluator import build_xgbrf_evaluator
 
 __all__ = [
     "DEFAULT_GA_CONFIG",
@@ -30,9 +32,11 @@ __all__ = [
     "MainConfig",
     "OutputConfig",
     "SelectionConfig",
+    "XGBRFConfig",
     "ExecutedCandidate",
     "FeatureCandidate",
     "FeatureExtractionPipeline",
+    "build_xgbrf_evaluator",
     "dedup_stage_by_output_columns",
     "dedup_stage_by_semantic_hash",
     "deduplicate_candidates_multistage",
