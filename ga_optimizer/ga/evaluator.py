@@ -77,9 +77,7 @@ def build_xgbrf_evaluator(
         n_estimators=n_estimators if n_estimators is not None else model_config.n_estimators,
         subsample=subsample if subsample is not None else model_config.subsample,
         colsample_bynode=(
-            colsample_bynode
-            if colsample_bynode is not None
-            else model_config.colsample_bynode
+            colsample_bynode if colsample_bynode is not None else model_config.colsample_bynode
         ),
         random_state=random_state if random_state is not None else model_config.random_state,
         verbosity=model_config.verbosity,
