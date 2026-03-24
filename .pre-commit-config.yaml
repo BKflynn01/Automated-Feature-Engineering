@@ -20,7 +20,7 @@ repos:
 
       - id: mypy
         name: mypy
-        entry: mypy . --exclude="^llmfe/"
+        entry: mypy . --exclude="llmfe"
         language: system
         pass_filenames: false
         stages: [pre-push]
