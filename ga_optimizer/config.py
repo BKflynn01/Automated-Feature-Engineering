@@ -412,7 +412,7 @@ def load_dataset_run_config(path: str | Path) -> DatasetRunConfig:
         raise ValueError(
             "Invalid dataset config: 'task' must be either 'classification' or 'regression'"
         )
-    task: Literal["classification", "regression"] = task_raw # type: ignore[assignment]
+    task: Literal["classification", "regression"] = task_raw  # type: ignore[assignment]
 
     scoring = _optional_str(data, "scoring")
     is_time_series = _optional_bool(data, "is_time_series")

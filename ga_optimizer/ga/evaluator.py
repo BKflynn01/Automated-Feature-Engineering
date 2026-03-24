@@ -21,6 +21,7 @@ The evaluator prefers GPU execution when configured, but prediction is designed
 to degrade gracefully when CUDA/CuPy/runtime compatibility issues occur.
 """
 
+
 @lru_cache(maxsize=1)
 def _gpu_available_for_xgboost() -> bool:
     """Return True only if XGBoost is CUDA-enabled and a tiny CUDA fit succeeds.
@@ -212,10 +213,10 @@ class _XGBRFEvaluator:
                         feature_names = [str(col) for col in X_test.columns]
                         matrix_data = X_test.to_numpy()
                     elif isinstance(X_test, pd.Series):
-                        feature_names = [str(X_test.name)] if X_test.name is not None else None # type: ignore[assignment]
+                        feature_names = [str(X_test.name)] if X_test.name is not None else None  # type: ignore[assignment]
                         matrix_data = X_test.to_numpy().reshape(-1, 1)
                     else:
-                        feature_names = None # type: ignore[assignment]
+                        feature_names = None  # type: ignore[assignment]
                         matrix_data = np.asarray(X_test)
                     matrix = xgb.DMatrix(matrix_data, feature_names=feature_names)
                     raw_pred = np.asarray(model.get_booster().predict(matrix))

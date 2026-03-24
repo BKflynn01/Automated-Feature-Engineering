@@ -68,6 +68,7 @@ def preprocess_dataset(df: pd.DataFrame, mappings: ColumnMappings) -> pd.DataFra
 
     return df
 
+
 def preprocess_datasets(
     df_train: pd.DataFrame,
     df_test: Optional[pd.DataFrame],

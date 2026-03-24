@@ -317,7 +317,7 @@ def main() -> None:
 
     print("Resolved GA run settings:")
     print(json.dumps(settings, indent=2, sort_keys=True))
-    
+
     best_features, _best_score = run_ga(
         csv_path=str(input_path),
         label_column=str(settings["label_column"]),

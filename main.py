@@ -298,7 +298,7 @@ if __name__ == "__main__":
 
         wandb_run_id = pipeline.main(
             specification=specification,
-            inputs=dataset, # type: ignore
+            inputs=dataset,  # type: ignore
             config=run_config,
             meta_data=meta_data,
             max_sample_nums=global_max_sample_num,
