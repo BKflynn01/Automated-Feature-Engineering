@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-"""Cross-validated XGBoost evaluator used by the GA feature-selection loop.
-
-The evaluator prefers GPU execution when configured, but prediction is designed
-to degrade gracefully when CUDA/CuPy/runtime compatibility issues occur.
-"""
-
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable, List, Literal, Optional
@@ -21,6 +15,11 @@ from cv_utils import iter_sliding_window_splits, resolve_sliding_window_params
 from ga_optimizer.config import DEFAULT_GA_CONFIG, GAOptimizerConfig
 from preprocessing import preprocess_datasets
 
+"""Cross-validated XGBoost evaluator used by the GA feature-selection loop.
+
+The evaluator prefers GPU execution when configured, but prediction is designed
+to degrade gracefully when CUDA/CuPy/runtime compatibility issues occur.
+"""
 
 @lru_cache(maxsize=1)
 def _gpu_available_for_xgboost() -> bool:

@@ -271,7 +271,7 @@ if __name__ == "__main__":
     )
 
     review_processes = []
-    classification_metrics_sink = []
+    classification_metrics_sink: list = []
     current_is_cat = [is_cat_map.get(col, False) for col in X.columns]
     for job in outer_jobs:
         split_id = job["split_id"]
@@ -298,7 +298,7 @@ if __name__ == "__main__":
 
         wandb_run_id = pipeline.main(
             specification=specification,
-            inputs=dataset,
+            inputs=dataset, # type: ignore
             config=run_config,
             meta_data=meta_data,
             max_sample_nums=global_max_sample_num,
