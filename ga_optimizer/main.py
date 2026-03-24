@@ -20,7 +20,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--samples_dir", required=True, help="Directory containing candidate JSON files"
     )
-    parser.add_argument("--output_csv", required=True, help="Path to write merged output CSV")
+    parser.add_argument(
+        "--source_file_glob",
+        default=None,
+        help=(
+            "Optional relative glob filter applied within samples_dir, e.g. "
+            "'btc_gpt3.5_split_*/samples/*.json'"
+        ),
+    )
+    parser.add_argument(
+        "--output_csv", required=True, help="Path to write merged output CSV"
+    )
     parser.add_argument(
         "--metadata_csv",
         default=None,
@@ -65,7 +75,9 @@ def resolve_label_column(
 ) -> str | None:
     if label_column:
         if label_column not in df.columns:
-            raise ValueError(f"label column '{label_column}' not found in input columns")
+            raise ValueError(
+                f"label column '{label_column}' not found in input columns"
+            )
         return label_column
     if use_last_column:
         return str(df.columns[-1])
@@ -79,7 +91,9 @@ def main() -> None:
     samples_path = Path(args.samples_dir)
     output_path = Path(args.output_csv)
     metadata_path = (
-        Path(args.metadata_csv) if args.metadata_csv else output_path.with_suffix(".meta.csv")
+        Path(args.metadata_csv)
+        if args.metadata_csv
+        else output_path.with_suffix(".meta.csv")
     )
 
     if not input_path.exists():
@@ -99,6 +113,7 @@ def main() -> None:
         k_per_island=args.k_per_island,
         label_column=label_column,
         include_original=not args.exclude_original,
+        source_file_glob=args.source_file_glob,
     )
 
     final_df, metadata_df = pipeline.run(df, dataset_name=input_path.stem)

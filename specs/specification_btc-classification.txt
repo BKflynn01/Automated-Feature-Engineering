@@ -1,0 +1,121 @@
+"""
+[PREFIX]
+
+###
+<Task>
+Estimate the price direction change for the next day of bitcoin price.
+
+###
+<Features>
+[FEATURES]
+
+###
+<Examples>
+[EXAMPLES]
+[SUFFIX]
+"""
+
+@evaluate.run
+def evaluate(data: dict):
+    """ Evaluate the feature transformations on data observations."""
+
+    from sklearn import preprocessing
+    from sklearn.metrics import (
+        accuracy_score,
+        balanced_accuracy_score,
+        confusion_matrix,
+        f1_score,
+        precision_score,
+        recall_score,
+    )
+    from preprocessing import preprocess_datasets
+    from cv_utils import iter_sliding_window_splits, resolve_sliding_window_params
+    import xgboost as xgb
+    import numpy as np
+
+    # Load data observations
+    label_encoder = preprocessing.LabelEncoder()
+    inputs, outputs, is_cat, is_regression = data['inputs'], data['outputs'], data['is_cat'], data['is_regression']
+    X = modify_features(inputs)
+    y = np.asarray(outputs).astype(int)
+
+    # Encode categorical string columns
+    for col in X.columns:
+        if X[col].dtype == 'string':
+            X[col] = label_encoder.fit_transform(X[col])
+
+    train_window, test_window, step_window = resolve_sliding_window_params(
+        n_samples=len(X.index),
+        n_splits=4,
+        train_window=data.get('time_series_train_window'),
+        test_window=data.get('time_series_test_window'),
+        step_window=data.get('time_series_step_window'),
+        gap=int(data.get('time_series_gap', 0)),
+    )
+    split_iterator = iter_sliding_window_splits(
+        n_samples=len(X.index),
+        train_window=train_window,
+        test_window=test_window,
+        step_window=step_window,
+        gap=int(data.get('time_series_gap', 0)),
+    )
+
+    scores = []
+    all_y_true = []
+    all_y_pred = []
+
+    for train_idx, test_idx in split_iterator:
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        X_train_new, X_test_new = preprocess_datasets(X_train, X_test, None)
+        
+        # Load model
+        model = xgb.XGBClassifier(random_state=42)
+
+        model.fit(X_train_new, y_train)
+        
+        y_pred = model.predict(X_test_new)
+        score = accuracy_score(y_test, y_pred)
+        scores.append(score)
+        all_y_true.extend(np.asarray(y_test).tolist())
+        all_y_pred.extend(np.asarray(y_pred).tolist())
+
+    # Calculate average score
+    avg_score = float(np.mean(scores))
+    y_true_all = np.asarray(all_y_true).astype(int)
+    y_pred_all = np.asarray(all_y_pred).astype(int)
+    tn, fp, fn, tp = confusion_matrix(y_true_all, y_pred_all, labels=[0, 1]).ravel()
+    precision = float(precision_score(y_true_all, y_pred_all, zero_division=0))
+    recall = float(recall_score(y_true_all, y_pred_all, zero_division=0))
+    f1 = float(f1_score(y_true_all, y_pred_all, zero_division=0))
+    balanced_acc = float(balanced_accuracy_score(y_true_all, y_pred_all))
+    specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+    metrics = {
+        "accuracy": float(accuracy_score(y_true_all, y_pred_all)),
+        "balanced_accuracy": balanced_acc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "specificity": specificity,
+        "tn": int(tn),
+        "fp": int(fp),
+        "fn": int(fn),
+        "tp": int(tp),
+        "n_eval_points": int(len(y_true_all)),
+    }
+
+    return avg_score, inputs, outputs, metrics
+
+
+@equation.evolve
+def modify_features(df_input) -> pd.DataFrame:
+    """
+    Thought 1: Combining price and volume can reveal momentum strength in BTC trading activity.
+    New Feature 1: price_volume | price_volume = (close * volume)
+    """
+    df_output = df_input.copy()
+    # Calculate price-volume product
+    df_output['price_volume'] = df_output['close'] * df_output['volume']
+    
+    return df_output

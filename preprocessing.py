@@ -1,7 +1,8 @@
-import pandas as pd
 import copy
-import numpy as np
 from typing import Dict, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 
 
 def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
@@ -20,13 +21,16 @@ def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
             df_train[col].dtype.name == "category"
             or df_train[col].dtype.name == "object"
         ):
-            mappings[col] = {v: i for i, v in 
-                enumerate(df_train[col].astype("category").cat.categories)
+            mappings[col] = {
+                v: i
+                for i, v in enumerate(df_train[col].astype("category").cat.categories)
             }
     return mappings
 
 
-def convert_categorical_to_integer_f(column: pd.Series, mapping: Optional[Dict[int, str]] = None) -> pd.Series:
+def convert_categorical_to_integer_f(
+    column: pd.Series, mapping: Optional[Dict[int, str]] = None
+) -> pd.Series:
     """
     Converts a categorical column to integer values using the given mapping.
 
@@ -44,7 +48,10 @@ def convert_categorical_to_integer_f(column: pd.Series, mapping: Optional[Dict[i
         return column.map(mapping).fillna(-1).astype(int)
     return column
 
-def preprocess_dataset(df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]) -> pd.DataFrame:
+
+def preprocess_dataset(
+    df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]
+) -> pd.DataFrame:
     """
     Converts the categorical columns in the given dataframe to integer values using the given mappings.
 
@@ -67,7 +74,12 @@ def preprocess_dataset(df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]) ->
     return df
 
 
-def preprocess_datasets(df_train: pd.DataFrame, df_test: Optional[pd.DataFrame], target_column: str, return_mappings: Optional[bool] = False) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[Dict[str, Dict[int, str]]]]:
+def preprocess_datasets(
+    df_train: pd.DataFrame,
+    df_test: Optional[pd.DataFrame],
+    target_column: str,
+    return_mappings: Optional[bool] = False,
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[Dict[str, Dict[int, str]]]]:
     """
     Converts the categorical columns in the given training and test dataframes to integer values using mappings created from the training dataframe.
 

@@ -1,50 +1,52 @@
-""" Implementation of the llmfe pipeline. """
+"""Implementation of the llmfe pipeline."""
+
 from __future__ import annotations
 
-# from collections.abc import Sequence
-from typing import Any, Tuple, Sequence
-
-from llmfe import code_manipulation
-from llmfe import config as config_lib
-from llmfe import evaluator
-from llmfe import buffer
-from llmfe import sampler
-import wandb
-from llmfe import profile
 import dataclasses
+
+# from collections.abc import Sequence
+from typing import Any, Sequence, Tuple
+
+import wandb
+from llmfe import buffer, code_manipulation
+from llmfe import config as config_lib
+from llmfe import evaluator, profile, sampler
 
 
 def _extract_function_names(specification: str) -> Tuple[str, str]:
-    """ Return the name of the function to evolve and of the function to run.
+    """Return the name of the function to evolve and of the function to run.
 
     The so-called specification refers to the boilerplate code template for a task.
     The template MUST have two important functions decorated with '@evaluate.run', '@equation.evolve' respectively.
     The function labeled with '@evaluate.run' is going to evaluate the generated code (like data-diven fitness evaluation).
     The function labeled with '@equation.evolve' is the function to be searched (like 'equation' structure).
     """
-    run_functions = list(code_manipulation.yield_decorated(specification, 'evaluate', 'run'))
+    run_functions = list(
+        code_manipulation.yield_decorated(specification, "evaluate", "run")
+    )
     if len(run_functions) != 1:
-        raise ValueError('Expected 1 function decorated with `@evaluate.run`.')
-    evolve_functions = list(code_manipulation.yield_decorated(specification, 'equation', 'evolve'))
-    
+        raise ValueError("Expected 1 function decorated with `@evaluate.run`.")
+    evolve_functions = list(
+        code_manipulation.yield_decorated(specification, "equation", "evolve")
+    )
+
     if len(evolve_functions) != 1:
-        raise ValueError('Expected 1 function decorated with `@equation.evolve`.')
-    
+        raise ValueError("Expected 1 function decorated with `@equation.evolve`.")
+
     return evolve_functions[0], run_functions[0]
 
 
-
 def main(
-        specification: str,
-        inputs: Sequence[Any],
-        config: config_lib.Config,
-        meta_data: dict,
-        max_sample_nums: int | None,
-        class_config: config_lib.ClassConfig,
-        logger: Any = None,
-        **kwargs
+    specification: str,
+    inputs: Sequence[Any],
+    config: config_lib.Config,
+    meta_data: dict,
+    max_sample_nums: int | None,
+    class_config: config_lib.ClassConfig,
+    logger: Any = None,
+    **kwargs,
 ):
-    """ Launch a llmfe experiment.
+    """Launch a llmfe experiment.
     Args:
         specification: the boilerplate code for the problem.
         inputs       : the data instances for the problem.
@@ -53,59 +55,95 @@ def main(
         max_sample_nums: the maximum samples nums from LLM. 'None' refers to no stop.
     """
     function_to_evolve, function_to_run = _extract_function_names(specification)
+    run_type = kwargs.get("run_type", "llmfe")
+    wandb_project = kwargs.get("wandb_project", "llmfe-feature-engineering-btc")
+    run_name = kwargs.get("run_name", f"{kwargs.get('log_dir', 'run')}")
+    run_group = kwargs.get("wandb_group", None)
+    run_config = dataclasses.asdict(config)
+    run_config["run_type"] = run_type
 
     # Initialize Weights & Biases
     wandb.init(
-        project="llmfe-feature-engineering-btc",
-        config=dataclasses.asdict(config),
-        name=f"{kwargs.get('log_dir', 'run')}"
+        project=wandb_project,
+        config=run_config,
+        name=run_name,
+        group=run_group,
+        tags=[run_type],
     )
+    if wandb.run is not None:
+        wandb.run.summary["run_type"] = run_type
     template = code_manipulation.text_to_program(specification)
-    database = buffer.ExperienceBuffer(config.experience_buffer, template, function_to_evolve, meta_data)
+    database = buffer.ExperienceBuffer(
+        config.experience_buffer, template, function_to_evolve, meta_data
+    )
 
     # get log_dir and create profiler
-    log_dir = kwargs.get('log_dir', None)
+    log_dir = kwargs.get("log_dir", None)
+    classification_metrics_sink = kwargs.get("classification_metrics_sink")
     if log_dir is None:
         profiler = None
     else:
-        profiler = profile.Profiler(log_dir=log_dir,
-                                    wandb_enable=True,
-                                    wandb_project = "llmfe-feature-engineering-btc",
-                                    wandb_run_name = kwargs.get("run_name"),
-                                    split_id=kwargs.get("split_id"),
-                                    base_step=kwargs.get("base_step", 0))
+        profiler = profile.Profiler(
+            log_dir=log_dir,
+            wandb_enable=True,
+            wandb_project=wandb_project,
+            wandb_run_name=run_name,
+            wandb_group_name=run_group,
+            run_config=run_config,
+            split_id=kwargs.get("split_id"),
+            base_step=kwargs.get("base_step", 0),
+            classification_metrics_sink=classification_metrics_sink,
+            init_wandb_run=False,
+        )
 
     evaluators = []
     for _ in range(config.num_evaluators):
-        evaluators.append(evaluator.Evaluator(
-            database,
-            template,
-            function_to_evolve,
-            function_to_run,
-            inputs,
-            timeout_seconds=config.evaluate_timeout_seconds,
-            sandbox_class=class_config.sandbox_class,
-            logger=logger
-        ))
+        evaluators.append(
+            evaluator.Evaluator(
+                database,
+                template,
+                function_to_evolve,
+                function_to_run,
+                inputs,
+                timeout_seconds=config.evaluate_timeout_seconds,
+                sandbox_class=class_config.sandbox_class,
+                logger=logger,
+            )
+        )
 
     initial = template.get_function(function_to_evolve).body
-    evaluators[0].analyse(initial, island_id=None, version_generated=None, data_input=inputs['data']['inputs'], data_output= inputs['data']['outputs'], profiler=profiler)
+    evaluators[0].analyse(
+        initial,
+        island_id=None,
+        version_generated=None,
+        data_input=inputs["data"]["inputs"],
+        data_output=inputs["data"]["outputs"],
+        profiler=profiler,
+    )
     # Set global max sample nums.
-    samplers = [sampler.Sampler(database, evaluators, 
-                                config.samples_per_prompt, 
-                                meta_data=meta_data,
-                                max_sample_nums=max_sample_nums,
-                                llm_class=class_config.llm_class,
-                                config = config)
-                                for _ in range(config.num_samplers)]
+    samplers = [
+        sampler.Sampler(
+            database,
+            evaluators,
+            config.samples_per_prompt,
+            meta_data=meta_data,
+            max_sample_nums=max_sample_nums,
+            llm_class=class_config.llm_class,
+            config=config,
+        )
+        for _ in range(config.num_samplers)
+    ]
 
     # This loop can be executed in parallel on remote sampler machines. As each
     # sampler enters an infinite loop, without parallelization only the first
     # sampler will do any work.
     for s in samplers:
         s.sample(profiler=profiler, **kwargs)
-        
-    if wandb.run is not None: 
-        return wandb.run.id
+
+    if profiler is not None:
+        profiler.close()
+
+    run_id = wandb.run.id if wandb.run is not None else None
+    if wandb.run is not None:
         wandb.finish()
-    return None
+    return run_id

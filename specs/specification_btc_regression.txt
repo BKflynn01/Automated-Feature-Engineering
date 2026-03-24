@@ -20,10 +20,9 @@ def evaluate(data: dict):
     """ Evaluate the feature transformations on data observations."""
 
     from sklearn import preprocessing
-    from sklearn.model_selection import TimeSeriesSplit
-    from sklearn.model_selection import StratifiedKFold, KFold
     from sklearn.metrics import root_mean_squared_error
     from preprocessing import preprocess_datasets
+    from cv_utils import iter_sliding_window_splits, resolve_sliding_window_params
     import xgboost as xgb
     import torch
     import numpy as np
@@ -39,13 +38,25 @@ def evaluate(data: dict):
         if X[col].dtype == 'string':
             X[col] = label_encoder.fit_transform(X[col])
 
-    # Choose cross-validation strategy
-    tscv = TimeSeriesSplit(n_splits=4)
+    train_window, test_window, step_window = resolve_sliding_window_params(
+        n_samples=len(X.index),
+        n_splits=4,
+        train_window=data.get('time_series_train_window'),
+        test_window=data.get('time_series_test_window'),
+        step_window=data.get('time_series_step_window'),
+        gap=int(data.get('time_series_gap', 0)),
+    )
+    split_iterator = iter_sliding_window_splits(
+        n_samples=len(X.index),
+        train_window=train_window,
+        test_window=test_window,
+        step_window=step_window,
+        gap=int(data.get('time_series_gap', 0)),
+    )
 
     scores = []
 
-    # 4-Fold Cross-Validation
-    for train_idx, test_idx in tscv.split(X, y):
+    for train_idx, test_idx in split_iterator:
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 

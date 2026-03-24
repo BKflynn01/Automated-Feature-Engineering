@@ -54,6 +54,8 @@ def test_parse_args(monkeypatch):
             "samples",
             "--output_csv",
             "out.csv",
+            "--source_file_glob",
+            "btc_gpt3.5_split_*/samples/*.json",
             "--use_last_column_as_label",
             "--k_per_island",
             "3",
@@ -65,6 +67,7 @@ def test_parse_args(monkeypatch):
     assert args.input_csv == "in.csv"
     assert args.samples_dir == "samples"
     assert args.output_csv == "out.csv"
+    assert args.source_file_glob == "btc_gpt3.5_split_*/samples/*.json"
     assert args.use_last_column_as_label is True
     assert args.k_per_island == 3
     assert args.sep == ";"
@@ -86,6 +89,7 @@ def test_parse_args_defaults_follow_config(monkeypatch):
     args = ga_main.parse_args()
     assert args.k_per_island == DEFAULT_GA_CONFIG.main.default_k_per_island
     assert args.sep == DEFAULT_GA_CONFIG.main.default_sep
+    assert args.source_file_glob is None
 
 
 def test_main_writes_outputs_and_uses_pipeline(monkeypatch, tmp_path):
@@ -99,11 +103,19 @@ def test_main_writes_outputs_and_uses_pipeline(monkeypatch, tmp_path):
     captured = {}
 
     class DummyPipeline:
-        def __init__(self, samples_dir, k_per_island, label_column, include_original):
+        def __init__(
+            self,
+            samples_dir,
+            k_per_island,
+            label_column,
+            include_original,
+            source_file_glob=None,
+        ):
             captured["samples_dir"] = samples_dir
             captured["k_per_island"] = k_per_island
             captured["label_column"] = label_column
             captured["include_original"] = include_original
+            captured["source_file_glob"] = source_file_glob
 
         def run(self, df, dataset_name=None):
             captured["run_shape"] = df.shape
@@ -117,6 +129,7 @@ def test_main_writes_outputs_and_uses_pipeline(monkeypatch, tmp_path):
         samples_dir=str(sample_dir),
         output_csv=str(output_csv),
         metadata_csv=None,
+        source_file_glob="btc_gpt3.5_split_*/samples/*.json",
         label_column=None,
         use_last_column_as_label=True,
         k_per_island=2,
@@ -142,6 +155,7 @@ def test_main_writes_outputs_and_uses_pipeline(monkeypatch, tmp_path):
     assert captured["k_per_island"] == 2
     assert captured["label_column"] == "target"
     assert captured["include_original"] is True
+    assert captured["source_file_glob"] == "btc_gpt3.5_split_*/samples/*.json"
     assert captured["run_shape"] == (2, 2)
     assert captured["dataset_name"] == "input"
 
@@ -157,6 +171,7 @@ def test_main_raises_when_input_csv_missing(monkeypatch, tmp_path):
         samples_dir=str(sample_dir),
         output_csv=str(output_csv),
         metadata_csv=None,
+        source_file_glob=None,
         label_column=None,
         use_last_column_as_label=True,
         k_per_island=2,
@@ -180,6 +195,7 @@ def test_main_raises_when_samples_dir_missing(monkeypatch, tmp_path):
         samples_dir=str(missing_samples),
         output_csv=str(output_csv),
         metadata_csv=None,
+        source_file_glob=None,
         label_column=None,
         use_last_column_as_label=True,
         k_per_island=2,
@@ -192,7 +208,9 @@ def test_main_raises_when_samples_dir_missing(monkeypatch, tmp_path):
         ga_main.main()
 
 
-def test_main_respects_explicit_metadata_sep_label_and_exclude_original(monkeypatch, tmp_path):
+def test_main_respects_explicit_metadata_sep_label_and_exclude_original(
+    monkeypatch, tmp_path
+):
     input_csv = tmp_path / "input.csv"
     sample_dir = tmp_path / "samples"
     output_csv = tmp_path / "nested" / "output.csv"
@@ -204,11 +222,19 @@ def test_main_respects_explicit_metadata_sep_label_and_exclude_original(monkeypa
     captured = {}
 
     class DummyPipeline:
-        def __init__(self, samples_dir, k_per_island, label_column, include_original):
+        def __init__(
+            self,
+            samples_dir,
+            k_per_island,
+            label_column,
+            include_original,
+            source_file_glob=None,
+        ):
             captured["samples_dir"] = samples_dir
             captured["k_per_island"] = k_per_island
             captured["label_column"] = label_column
             captured["include_original"] = include_original
+            captured["source_file_glob"] = source_file_glob
 
         def run(self, df, dataset_name=None):
             captured["run_shape"] = df.shape
@@ -222,6 +248,7 @@ def test_main_respects_explicit_metadata_sep_label_and_exclude_original(monkeypa
         samples_dir=str(sample_dir),
         output_csv=str(output_csv),
         metadata_csv=str(metadata_csv),
+        source_file_glob="btc_gpt3.5_split_*/samples/*.json",
         label_column="label",
         use_last_column_as_label=False,
         k_per_island=3,
@@ -245,5 +272,6 @@ def test_main_respects_explicit_metadata_sep_label_and_exclude_original(monkeypa
     assert captured["k_per_island"] == 3
     assert captured["label_column"] == "label"
     assert captured["include_original"] is False
+    assert captured["source_file_glob"] == "btc_gpt3.5_split_*/samples/*.json"
     assert captured["run_shape"] == (2, 2)
     assert captured["dataset_name"] == "input"

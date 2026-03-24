@@ -6,28 +6,28 @@ repos:
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff check ga_optimizer/
+        entry: ruff check .
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: black
         name: black
-        entry: black --check ga_optimizer/
+        entry: black --check .
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: mypy
         name: mypy
-        entry: mypy ga_optimizer/
+        entry: mypy .
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: bandit
         name: bandit
-        entry: bandit -c bandit.yaml -r ga_optimizer/
+        entry: bandit -c bandit.yaml -r .
         language: system
         pass_filenames: false
         stages: [pre-push]

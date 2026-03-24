@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from ga_optimizer.config import (
-    CandidateLoadConfig,
     DEFAULT_GA_CONFIG,
+    CandidateLoadConfig,
     DedupConfig,
     ExecutionConfig,
     OutputConfig,
@@ -137,6 +137,41 @@ def test_load_candidates_honors_configured_json_glob_patterns(tmp_path):
     assert candidates[0].source_file == "custom/c.json"
 
 
+def test_load_candidates_filters_by_source_file_glob(tmp_path):
+    root = tmp_path / "logs"
+    target_samples = root / "btc_gpt3.5_split_1" / "samples"
+    other_samples = root / "btc_gpt_4o_mini_split_1" / "samples"
+    target_samples.mkdir(parents=True)
+    other_samples.mkdir(parents=True)
+
+    _write_sample(
+        target_samples / "a.json",
+        {
+            "island_id": 1,
+            "score": 0.77,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 3,
+        },
+    )
+    _write_sample(
+        other_samples / "b.json",
+        {
+            "island_id": 2,
+            "score": 0.88,
+            "function_code": "def modify_features(df):\n    return df[['x']]",
+            "sample_order": 4,
+        },
+    )
+
+    candidates = load_candidates(
+        str(root),
+        source_file_glob="btc_gpt3.5_split_*/samples/*.json",
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].source_file == "btc_gpt3.5_split_1/samples/a.json"
+
+
 def test_select_top_k_per_island():
     candidates = [
         FeatureCandidate(1, 0.10, "a", 1, "a.json"),
@@ -160,7 +195,9 @@ def test_select_top_k_per_island_uses_config_default_when_k_not_provided():
         FeatureCandidate(2, 0.70, "d", 1, "d.json"),
         FeatureCandidate(2, 0.20, "e", 2, "e.json"),
     ]
-    config = replace(DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1))
+    config = replace(
+        DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1)
+    )
 
     selected = select_top_k_per_island(candidates, config=config)
 
@@ -610,9 +647,13 @@ def test_build_full_dataframe_uses_cached_selected_feature_outputs(monkeypatch):
     ]
 
     def _should_not_execute(*_args, **_kwargs):
-        raise AssertionError("_execute_candidate should not be called when cached output_df is available")
+        raise AssertionError(
+            "_execute_candidate should not be called when cached output_df is available"
+        )
 
-    monkeypatch.setattr("ga_optimizer.evolve.preprocess._execute_candidate", _should_not_execute)
+    monkeypatch.setattr(
+        "ga_optimizer.evolve.preprocess._execute_candidate", _should_not_execute
+    )
 
     out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
         df=df,
@@ -651,7 +692,8 @@ def test_build_full_dataframe_requires_exactly_one_input_mode():
     ]
 
     with pytest.raises(
-        ValueError, match="Exactly one of candidates or selected_features must be provided"
+        ValueError,
+        match="Exactly one of candidates or selected_features must be provided",
     ):
         FeatureExtractionPipeline.build_full_dataframe(
             df=df,
@@ -660,7 +702,8 @@ def test_build_full_dataframe_requires_exactly_one_input_mode():
         )
 
     with pytest.raises(
-        ValueError, match="Exactly one of candidates or selected_features must be provided"
+        ValueError,
+        match="Exactly one of candidates or selected_features must be provided",
     ):
         FeatureExtractionPipeline.build_full_dataframe(
             df=df,
@@ -824,7 +867,8 @@ def test_pipeline_run_raises_for_invalid_output_template(tmp_path):
     df = pd.DataFrame({"x": [1, 2], "target": [0, 1]})
 
     with pytest.raises(
-        ValueError, match="Invalid dedup_report_filename_template: missing placeholder 'missing'"
+        ValueError,
+        match="Invalid dedup_report_filename_template: missing placeholder 'missing'",
     ):
         pipeline.run(df, dataset_name="demo")
 
@@ -845,7 +889,10 @@ def test_build_full_dataframe_uses_configured_function_names():
             source_file="alt.json",
         )
     ]
-    config = replace(DEFAULT_GA_CONFIG, execution=ExecutionConfig(preferred_function_names=("alt_modify",)))
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        execution=ExecutionConfig(preferred_function_names=("alt_modify",)),
+    )
 
     out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
         df=df,

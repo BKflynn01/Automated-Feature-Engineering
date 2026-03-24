@@ -2,34 +2,39 @@
 
 from __future__ import annotations
 
-import os.path
-from typing import List, Dict
-import logging
-import json
 import html
-import wandb
-from wandb.errors import AuthenticationError, CommError
+import json
+import logging
+import os.path
+from collections import Counter, defaultdict
+from numbers import Number
+from typing import Any, Dict
+
 from requests.exceptions import RequestException
-from llmfe import code_manipulation
 from torch.utils.tensorboard import SummaryWriter
+from wandb.errors import AuthenticationError, CommError
+
+import wandb
+from llmfe import code_manipulation
 from llmfe.buffer import _get_signature, _reduce_score
 from wandb import Table, plot
-from collections import defaultdict, Counter
 
 
 class Profiler:
     def __init__(
-            self,
-            log_dir: str | None = None,
-            pkl_dir: str | None = None,
-            max_log_nums: int | None = None,
-            wandb_enable: bool = True,
-            wandb_project: str = "llmfe-feature-engineering-btc",
-            wandb_run_name: str | None = None,
-            wandb_group_name: str | None = None,
-            split_id: int | None = None,
-            run_config: dict | None = None,
-            base_step: int = 0
+        self,
+        log_dir: str | None = None,
+        pkl_dir: str | None = None,
+        max_log_nums: int | None = None,
+        wandb_enable: bool = True,
+        wandb_project: str = "llmfe-feature-engineering-btc",
+        wandb_run_name: str | None = None,
+        wandb_group_name: str | None = None,
+        split_id: int | None = None,
+        run_config: dict | None = None,
+        base_step: int = 0,
+        classification_metrics_sink: list[dict[str, Any]] | None = None,
+        init_wandb_run: bool = True,
     ):
         """
         Args:
@@ -39,7 +44,7 @@ class Profiler:
         """
         logging.getLogger().setLevel(logging.INFO)
         self._log_dir = log_dir
-        self._json_dir = os.path.join(log_dir, 'samples')
+        self._json_dir = os.path.join(log_dir, "samples")
         os.makedirs(self._json_dir, exist_ok=True)
         self._max_log_nums = max_log_nums
         self._num_samples = 0
@@ -51,10 +56,12 @@ class Profiler:
         self._tot_sample_time = 0
         self._tot_evaluate_time = 0
         self._all_sampled_functions: Dict[int, code_manipulation.Function] = {}
-        
+
         self._split_id = split_id
         self._base_step = base_step
         self._use_wandb = bool(wandb_enable)
+        self._classification_metrics_sink = classification_metrics_sink
+        self._owns_wandb_run = False
 
         if log_dir:
             self._writer = SummaryWriter(log_dir=log_dir)
@@ -65,126 +72,175 @@ class Profiler:
         self._each_sample_tot_sample_time = []
         self._each_sample_tot_evaluate_time = []
         self._cluster_counts: Dict[int, Counter] = defaultdict(Counter)
-            
+
         if self._use_wandb:
             if wandb_run_name is not None:
                 _run_name = wandb_run_name
             elif log_dir is not None:
                 _run_name = log_dir
             else:
-                _run_name ="run"
-                
-            wandb.init(project=wandb_project,
-                       name=_run_name,
-                       group=wandb_group_name,
-                       config=run_config,
-                       reinit=True)
+                _run_name = "run"
+
+            if init_wandb_run or wandb.run is None:
+                wandb.init(
+                    project=wandb_project,
+                    name=_run_name,
+                    group=wandb_group_name,
+                    config=run_config,
+                    reinit=True,
+                )
+                self._owns_wandb_run = True
+
             wandb.define_metric("global_step")
-            wandb.define_metric('*', step_metric="global_step")
-            self._wb_table = Table(columns=[
-                "global_step",
-                "split_id",
-                "island_id",
-                "score",
-                "sample_time",
-                "evaluate_time",
-                "cluster_signature",
-                "cluster_reduced_score",
-                "function_str",
-                "prompt_id",
-                "head_type",
-                "version_generated",
-            ])
-            self._wb_prompt_table = Table(columns=[
-                "prompt_step",
-                "split_id",
-                "island_id",
-                "prompt_id",
-                "version_generated",
-                "head_type",
-                "num_samples"
-            ])
-            
-                
-                       
+            wandb.define_metric("*", step_metric="global_step")
+            self._wb_table = Table(
+                columns=[
+                    "global_step",
+                    "split_id",
+                    "island_id",
+                    "score",
+                    "sample_time",
+                    "evaluate_time",
+                    "cluster_signature",
+                    "cluster_reduced_score",
+                    "function_str",
+                    "prompt_id",
+                    "head_type",
+                    "version_generated",
+                ]
+            )
+            self._wb_prompt_table = Table(
+                columns=[
+                    "prompt_step",
+                    "split_id",
+                    "island_id",
+                    "prompt_id",
+                    "version_generated",
+                    "head_type",
+                    "num_samples",
+                ]
+            )
+
+    def _append_classification_metrics_sink(
+        self,
+        *,
+        global_step: int,
+        split_id: int | None,
+        eval_metrics: dict[str, Any],
+    ) -> None:
+        if self._classification_metrics_sink is None:
+            return
+
+        required_fields = ("accuracy", "f1", "n_eval_points", "tn", "fp", "fn", "tp")
+        if any(field not in eval_metrics for field in required_fields):
+            return
+
+        try:
+            row = {
+                "global_step": int(global_step),
+                "split_id": int(split_id) if split_id is not None else -1,
+                "accuracy": float(eval_metrics["accuracy"]),
+                "f1": float(eval_metrics["f1"]),
+                "n_eval_points": int(eval_metrics["n_eval_points"]),
+                "tn": int(eval_metrics["tn"]),
+                "fp": int(eval_metrics["fp"]),
+                "fn": int(eval_metrics["fn"]),
+                "tp": int(eval_metrics["tp"]),
+            }
+        except (TypeError, ValueError):
+            return
+
+        if row["n_eval_points"] <= 0 or row["split_id"] < 0:
+            return
+        self._classification_metrics_sink.append(row)
+
     def _write_tensorboard(self):
         if not self._log_dir:
             return
 
         self._writer.add_scalar(
-            'Best Score of Function',
+            "Best Score of Function",
             self._cur_best_program_score,
-            global_step=self._num_samples
+            global_step=self._num_samples,
         )
         self._writer.add_scalars(
-            'Legal/Illegal Function',
+            "Legal/Illegal Function",
             {
-                'legal function num': self._evaluate_success_program_num,
-                'illegal function num': self._evaluate_failed_program_num
+                "legal function num": self._evaluate_success_program_num,
+                "illegal function num": self._evaluate_failed_program_num,
             },
-            global_step=self._num_samples
+            global_step=self._num_samples,
         )
         self._writer.add_scalars(
-            'Total Sample/Evaluate Time',
-            {'sample time': self._tot_sample_time, 'evaluate time': self._tot_evaluate_time},
-            global_step=self._num_samples
+            "Total Sample/Evaluate Time",
+            {
+                "sample time": self._tot_sample_time,
+                "evaluate time": self._tot_evaluate_time,
+            },
+            global_step=self._num_samples,
         )
-        
+
         # Log the function_str
         self._writer.add_text(
-            'Best Function String',
+            "Best Function String",
             self._cur_best_program_str,
-            global_step=self._num_samples
+            global_step=self._num_samples,
         )
-    def log_prompt(self, 
-                   *,
-                   prompt_id: str, 
-                   island_id: int, 
-                   version_generated: int, 
-                   prompt_code: str, 
-                   num_samples: int, 
-                   step_hint: int | None = None,
-                   head_type: str | None = None,
-                   instruction_prompt: str | None = None):
+
+    def log_prompt(
+        self,
+        *,
+        prompt_id: str,
+        island_id: int,
+        version_generated: int,
+        prompt_code: str,
+        num_samples: int,
+        step_hint: int | None = None,
+        head_type: str | None = None,
+        instruction_prompt: str | None = None,
+    ):
         # Log to wandb prompt table
-        if step_hint is None: 
-            _step_int = 0
-        else:
-            _step_hint = int(step_hint)
-        prompt_step = self._base_step + _step_hint
-        if self._use_wandb: self._wb_prompt_table.add_data(
-            prompt_step, 
-            self._split_id, 
-            island_id,
-            prompt_id,  
-            int(version_generated),
-            head_type,
-            int(num_samples),
-        )
+        step_delta = int(step_hint) if step_hint is not None else 0
+        prompt_step = self._base_step + step_delta
+        if self._use_wandb:
+            self._wb_prompt_table.add_data(
+                prompt_step,
+                self._split_id,
+                island_id,
+                prompt_id,
+                int(version_generated),
+                head_type,
+                int(num_samples),
+            )
         if self._use_wandb:
             combined_prompt = prompt_code
             if instruction_prompt:
                 combined_prompt = "\n".join([instruction_prompt, prompt_code])
-            _prev = combined_prompt.replace("<", "&lt;").replace(">","&gt;")
-            wandb.log({"Prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step)
-    def _log_wandb(self, 
-                   *,
-                   programs: code_manipulation.Function,
-                   island_id: int | None, 
-                   scores_per_test: dict | None,
-                   prompt_code: str | None = None):
+            _prev = combined_prompt.replace("<", "&lt;").replace(">", "&gt;")
+            wandb.log(
+                {"Prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step
+            )
+
+    def _log_wandb(
+        self,
+        *,
+        programs: code_manipulation.Function,
+        island_id: int | None,
+        scores_per_test: dict | None,
+        prompt_code: str | None = None,
+    ):
         if not self._use_wandb:
-            return 
+            return
         if getattr(programs, "global_sample_nums", None) is None:
-                   step_local = 0
-        else: 
+            step_local = 0
+        else:
             step_local = int(programs.global_sample_nums)
         global_step = self._base_step + step_local
         function_str = str(programs).strip("\n")
         score = programs.score
         sample_time = programs.sample_time
         evaluate_time = programs.evaluate_time
-        prompt_id = getattr(programs,"prompt_id", None)
+        prompt_id = getattr(programs, "prompt_id", None)
         version_generated = getattr(programs, "version_generated", None)
         head_type = getattr(programs, "head_type", None)
         cluster_signature = None
@@ -199,7 +255,7 @@ class Profiler:
                 pass
         else:
             signature_value = None
-        
+
         log_data = {
             "global_step": global_step,
             "split_id": self._split_id,
@@ -208,9 +264,31 @@ class Profiler:
             "Run_Metrics/Evaluate_Time": evaluate_time,
             "Run_Metrics/Number_Samples": self._num_samples,
             "Clusters/Cluster_Signatures": cluster_reduced_score,
-            **({f"Island/{island_id}_score": score} if island_id is not None and score is not None else {}),
+            **(
+                {f"Island/{island_id}_score": score}
+                if island_id is not None and score is not None
+                else {}
+            ),
         }
-        
+        eval_metrics = getattr(programs, "eval_metrics", None)
+        if isinstance(eval_metrics, dict):
+            self._append_classification_metrics_sink(
+                global_step=global_step,
+                split_id=self._split_id,
+                eval_metrics=eval_metrics,
+            )
+            for metric_name, metric_value in eval_metrics.items():
+                if isinstance(metric_value, Number):
+                    log_data[f"Classification/{metric_name}"] = float(metric_value)
+            cm_keys = {"tn", "fp", "fn", "tp"}
+            if cm_keys.issubset(eval_metrics):
+                cm_table = Table(columns=["actual", "predicted", "count"])
+                cm_table.add_data("down (0)", "down (0)", int(eval_metrics["tn"]))
+                cm_table.add_data("down (0)", "up (1)", int(eval_metrics["fp"]))
+                cm_table.add_data("up (1)", "down (0)", int(eval_metrics["fn"]))
+                cm_table.add_data("up (1)", "up (1)", int(eval_metrics["tp"]))
+                log_data["Classification/confusion_matrix_counts"] = cm_table
+
         try:
             wandb.log(log_data, step=global_step)
         except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
@@ -225,7 +303,7 @@ class Profiler:
                 prompt_id=prompt_id,
             )
         self._wb_table.add_data(
-            global_step, 
+            global_step,
             self._split_id,
             island_id,
             score,
@@ -237,34 +315,48 @@ class Profiler:
             prompt_id,
             head_type,
             version_generated,
-        )    
-        
+        )
+
         if self._use_wandb and island_id is not None and signature_value is not None:
             try:
-                self._log_cluster_histogram(island_id=island_id,
-                                            signature_value=signature_value,
-                                            step=global_step)
-            except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
+                self._log_cluster_histogram(
+                    island_id=island_id,
+                    signature_value=signature_value,
+                    step=global_step,
+                )
+            except (
+                AuthenticationError,
+                CommError,
+                RequestException,
+                TimeoutError,
+            ) as exc:
                 logging.warning("W&B histogram log failed: %s", exc)
 
-    def _log_cluster_histogram(self, *, island_id: int, signature_value: float, step: int) -> None:
+    def _log_cluster_histogram(
+        self, *, island_id: int, signature_value: float, step: int
+    ) -> None:
         counter = self._cluster_counts[island_id]
         counter[signature_value] += 1
         table = Table(columns=["signature", "count"])
         for sig, count in sorted(counter.items()):
             table.add_data(float(sig), int(count))
         chart = plot.bar(
-            table,
-            "signature",
-            "count",
-            title=f"Island {island_id} Cluster Histogram"
+            table, "signature", "count", title=f"Island {island_id} Cluster Histogram"
         )
         try:
             wandb.log({f"Clusters/{island_id}/Histogram": chart}, step=step)
         except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
             logging.warning("Failed to log cluster histogram to W&B: %s", exc)
 
-    def _log_program_media(self, *, island_id: int, step: int, program_str: str, score: float | None, prompt_id: str | None) -> None:
+    def _log_program_media(
+        self,
+        *,
+        island_id: int,
+        step: int,
+        program_str: str,
+        score: float | None,
+        prompt_id: str | None,
+    ) -> None:
         escaped_program = html.escape(program_str)
         header_items = [
             f"Global Step: {step}",
@@ -280,30 +372,40 @@ class Profiler:
             wandb.log({f"Programs/Island_{island_id}": wandb.Html(body)}, step=step)
         except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:
             logging.warning("Failed to log program HTML to W&B: %s", exc)
-            
-    def _write_json(self, programs: code_manipulation.Function, island_id: int | None, scores_per_test: dict | None):
+
+    def _write_json(
+        self,
+        programs: code_manipulation.Function,
+        island_id: int | None,
+        scores_per_test: dict | None,
+    ):
         sample_order = programs.global_sample_nums
         sample_order = sample_order if sample_order is not None else 0
         function_str = str(programs)
         score = programs.score
-        
+
         cluster_signature = None
         sig = _get_signature(scores_per_test) if scores_per_test else ()
-        cluster_signature = sig[0] if sig else None 
-            
+        cluster_signature = sig[0] if sig else None
 
         content = {
-            'sample_order': sample_order,
-            'island_id': island_id,
-            'cluster_signature': cluster_signature,
-            'function': function_str,
-            'score': score
+            "sample_order": sample_order,
+            "island_id": island_id,
+            "cluster_signature": cluster_signature,
+            "function": function_str,
+            "score": score,
         }
-        path = os.path.join(self._json_dir, f'samples_{sample_order}.json')
-        with open(path, 'w') as json_file:
+        path = os.path.join(self._json_dir, f"samples_{sample_order}.json")
+        with open(path, "w") as json_file:
             json.dump(content, json_file, indent=2)
 
-    def register_function(self, programs: code_manipulation.Function, island_id: int | None = None, scores_per_test: dict | None = None, **kwargs):
+    def register_function(
+        self,
+        programs: code_manipulation.Function,
+        island_id: int | None = None,
+        scores_per_test: dict | None = None,
+        **kwargs,
+    ):
         if self._max_log_nums is not None and self._num_samples >= self._max_log_nums:
             return
 
@@ -314,23 +416,28 @@ class Profiler:
             self._record_and_verbose(sample_orders)
             self._write_tensorboard()
             self._write_json(programs, island_id, scores_per_test)
-            self._log_wandb(programs=programs, island_id=island_id, scores_per_test=scores_per_test, prompt_code=kwargs.get('prompt_code'))
+            self._log_wandb(
+                programs=programs,
+                island_id=island_id,
+                scores_per_test=scores_per_test,
+                prompt_code=kwargs.get("prompt_code"),
+            )
 
     def _record_and_verbose(self, sample_orders: int):
         function = self._all_sampled_functions[sample_orders]
-        function_str = str(function).strip('\n')
+        function_str = str(function).strip("\n")
         sample_time = function.sample_time
         evaluate_time = function.evaluate_time
         score = function.score
         # log attributes of the function
-        print(f'================= Evaluated Function =================')
-        print(f'{function_str}')
-        print(f'------------------------------------------------------')
-        print(f'Score        : {str(score)}')
-        print(f'Sample time  : {str(sample_time)}')
-        print(f'Evaluate time: {str(evaluate_time)}')
-        print(f'Sample orders: {str(sample_orders)}')
-        print(f'======================================================\n\n')
+        print("================= Evaluated Function =================")
+        print(f"{function_str}")
+        print("------------------------------------------------------")
+        print(f"Score        : {str(score)}")
+        print(f"Sample time  : {str(sample_time)}")
+        print(f"Evaluate time: {str(evaluate_time)}")
+        print(f"Sample orders: {str(sample_orders)}")
+        print("======================================================\n\n")
 
         # update best function in curve
         if function.score is not None and score > self._cur_best_program_score:
@@ -348,15 +455,15 @@ class Profiler:
             self._tot_sample_time += sample_time
         if evaluate_time:
             self._tot_evaluate_time += evaluate_time
-            
-            
+
     def close(self):
-        if hasattr(self,'_writer'):
-                   self._writer.flush()
-                   self._writer.close()
-        if self._use_wandb:
+        if hasattr(self, "_writer"):
+            self._writer.flush()
+            self._writer.close()
+        if self._use_wandb and wandb.run is not None:
             wandb.run.summary["num_samples"] = self._num_samples
             wandb.run.summary["split_id"] = self._split_id
             wandb.log({"proposals/table": self._wb_table})
             wandb.log({"prompts/table": self._wb_prompt_table})
-            wandb.finish()
+            if self._owns_wandb_run:
+                wandb.finish()

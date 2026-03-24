@@ -1,0 +1,15 @@
+dataset_name: your-dataset-name
+input_csv: ./path/to/features.csv
+label_column: target
+task: classification
+
+# Optional fields below:
+# scoring: accuracy
+# is_time_series: false
+# time_series_train_window: 365
+# time_series_test_window: 1
+# time_series_step_window: 3
+# time_series_gap: 0
+# random_state: 42
+# sep: ","
+# output_dir: ./ga_optimizer/data/your-dataset-name

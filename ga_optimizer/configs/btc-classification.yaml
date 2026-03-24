@@ -1,0 +1,13 @@
+dataset_name: btc-classification
+input_csv: ../data/btc-classification/features.csv
+label_column: price_direction
+task: classification
+scoring: accuracy
+is_time_series: true
+time_series_train_window: 365
+time_series_test_window: 1
+time_series_step_window: 3
+time_series_gap: 0
+random_state: 42
+sep: ","
+output_dir: ../data/btc-classification

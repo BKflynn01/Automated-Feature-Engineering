@@ -88,7 +88,9 @@ def test_pipeline_integration_uses_config_default_top_k_when_not_provided(tmp_pa
     with open(samples_dir / "sample_2.json", "w", encoding="utf-8") as f:
         json.dump(candidate_payload_2, f)
 
-    config = replace(DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1))
+    config = replace(
+        DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1)
+    )
     pipeline = FeatureExtractionPipeline(
         samples_dir=str(samples_dir),
         label_column="target",

@@ -1,27 +1,29 @@
 """A multi-island experience buffer that implements the evolutionary algorithm."""
+
 from __future__ import annotations
 
-import profile
-from collections.abc import Mapping, Sequence
 import copy
 import dataclasses
-import time
-from typing import Any, Tuple, Mapping
-
-from absl import logging
-import numpy as np
-import random
 import os
+import profile
+import random
+import sys
+import time
+from collections.abc import Mapping, Sequence
+from typing import Any, Tuple
+
+import numpy as np
 import pandas as pd
 import scipy
-import sys
-import wandb
+from absl import logging
 
+import wandb
 from llmfe import code_manipulation
 from llmfe import config as config_lib
-sys.path.append('..')
-from utils import serialize
-from utils import is_categorical
+
+sys.path.append("..")
+from utils import is_categorical, serialize
+
 Signature = Tuple[float, ...]
 ScoresPerTest = Mapping[Any, float]
 
@@ -30,14 +32,15 @@ def _softmax(logits: np.ndarray, temperature: float) -> np.ndarray:
     """Returns the tempered softmax of 1D finite `logits`."""
     if not np.all(np.isfinite(logits)):
         non_finites = set(logits[~np.isfinite(logits)])
-        raise ValueError(f'`logits` contains non-finite value(s): {non_finites}')
+        raise ValueError(f"`logits` contains non-finite value(s): {non_finites}")
     if not np.issubdtype(logits.dtype, np.floating):
         logits = np.array(logits, dtype=np.float32)
 
     result = scipy.special.softmax(logits / temperature, axis=-1)
     index = np.argmax(result)
-    result[index] = 1 - np.sum(result[0:index]) - np.sum(result[index + 1:])
+    result[index] = 1 - np.sum(result[0:index]) - np.sum(result[index + 1 :])
     return result
+
 
 def _reduce_score(scores_per_test: ScoresPerTest) -> float:
     test_scores = [scores_per_test[k] for k in scores_per_test.keys()]
@@ -51,7 +54,7 @@ def _get_signature(scores_per_test: ScoresPerTest) -> Signature:
 
 @dataclasses.dataclass(frozen=True)
 class Prompt:
-    """ A prompt produced by the Experience Buffer, to be sent to Samplers.
+    """A prompt produced by the Experience Buffer, to be sent to Samplers.
 
     Args:
       code: The prompt, ending with the header of the function to be completed.
@@ -60,6 +63,7 @@ class Prompt:
                 included in the prompt. Used to direct the newly generated sample
                 into the same island.
     """
+
     code: str
     version_generated: int
     island_id: int
@@ -71,11 +75,11 @@ class ExperienceBuffer:
     """A collection of programs, organized as islands."""
 
     def __init__(
-            self,
-            config: config_lib.ExperienceBufferConfig,
-            template: code_manipulation.Program,
-            function_to_evolve: str,
-            meta_data: dict
+        self,
+        config: config_lib.ExperienceBufferConfig,
+        template: code_manipulation.Program,
+        function_to_evolve: str,
+        meta_data: dict,
     ) -> None:
         self._config: config_lib.ExperienceBufferConfig = config
         self._template: code_manipulation.Program = template
@@ -86,72 +90,95 @@ class ExperienceBuffer:
         self._islands: list[Island] = []
         for _ in range(config.num_islands):
             self._islands.append(
-                Island(template, function_to_evolve, config.functions_per_prompt, 
-                       meta_data,
-                       config.cluster_sampling_temperature_init,
-                       config.cluster_sampling_temperature_period))
-        self._best_score_per_island: list[float] = (
-                [-float('inf')] * config.num_islands)
-        self._best_program_per_island: list[code_manipulation.Function | None] = (
-                [None] * config.num_islands)
-        self._best_scores_per_test_per_island: list[ScoresPerTest | None] = (
-                [None] * config.num_islands)
+                Island(
+                    template,
+                    function_to_evolve,
+                    config.functions_per_prompt,
+                    meta_data,
+                    config.cluster_sampling_temperature_init,
+                    config.cluster_sampling_temperature_period,
+                )
+            )
+        self._best_score_per_island: list[float] = [-float("inf")] * config.num_islands
+        self._best_program_per_island: list[code_manipulation.Function | None] = [
+            None
+        ] * config.num_islands
+        self._best_scores_per_test_per_island: list[ScoresPerTest | None] = [
+            None
+        ] * config.num_islands
 
         self._last_reset_time: float = time.time()
         try:
             self._pre_reseed_table = wandb.Table(
-                columns=["global_step", "island_id", "num_clusters", "mean_score", "variance", "best_score"],
-                log_mode="MUTABLE"
+                columns=[
+                    "global_step",
+                    "island_id",
+                    "num_clusters",
+                    "mean_score",
+                    "variance",
+                    "best_score",
+                ],
+                log_mode="MUTABLE",
             )
         except Exception:
             self._pre_reseed_table = None
         try:
             self._best_update_table = wandb.Table(
                 columns=["island_id", "updated_score", "global_step"],
-                log_mode="MUTABLE"
+                log_mode="MUTABLE",
             )
         except Exception:
             self._best_update_table = None
         try:
             self._reseed_table = wandb.Table(
-                columns=["global_step", "island_id_updated", "island_id_seed", "seed_score"],
-                log_mode="MUTABLE"
+                columns=[
+                    "global_step",
+                    "island_id_updated",
+                    "island_id_seed",
+                    "seed_score",
+                ],
+                log_mode="MUTABLE",
             )
         except Exception:
             self._reseed_table = None
 
-
     def get_prompt(self) -> Prompt:
         """Returns a prompt containing samples from one chosen island."""
         island_id = np.random.randint(len(self._islands))
-        code, version_generated, data_input, data_output = self._islands[island_id].get_prompt()
-        
+        code, version_generated, data_input, data_output = self._islands[
+            island_id
+        ].get_prompt()
+
         return Prompt(code, version_generated, island_id, data_input, data_output)
 
-
     def _register_program_in_island(
-            self,
-            program: code_manipulation.Function,
-            input_data: pd.DataFrame,
-            output_data: pd.DataFrame,
-            island_id: int,
-            scores_per_test: ScoresPerTest,
-            **kwargs
+        self,
+        program: code_manipulation.Function,
+        input_data: pd.DataFrame,
+        output_data: pd.DataFrame,
+        island_id: int,
+        scores_per_test: ScoresPerTest,
+        **kwargs,
     ) -> None:
         """Registers `program` in the specified island."""
-        self._islands[island_id].register_program(input_data, output_data, program, scores_per_test)
+        self._islands[island_id].register_program(
+            input_data, output_data, program, scores_per_test
+        )
         score = _reduce_score(scores_per_test)
         if score > self._best_score_per_island[island_id]:
             self._best_program_per_island[island_id] = program
             self._best_scores_per_test_per_island[island_id] = scores_per_test
             self._best_score_per_island[island_id] = score
-            
+
             # Log the new best score for the island to W&B
-            global_sample_nums = kwargs.get('global_sample_nums')
+            global_sample_nums = kwargs.get("global_sample_nums")
             if global_sample_nums is not None:
-                wandb.log({
-                    f"Island/Island_{island_id}_Best_Score": score,
-                }, step=global_sample_nums)
+                wandb.log(
+                    {
+                        f"Island/Island_{island_id}_Best_Score": score,
+                    },
+                    step=global_sample_nums,
+                )
                 if self._best_update_table is not None:
                     try:
                         self._best_update_table.add_data(
@@ -161,50 +188,65 @@ class ExperienceBuffer:
                         )
                         wandb.log(
                             {"Island_Updates/Best_Scores": self._best_update_table},
-                            step=global_sample_nums
+                            step=global_sample_nums,
                         )
                     except Exception:
                         pass
-            
-            logging.info('Best score of island %d increased to %s', island_id, score)
 
-        profiler: profile.Profiler = kwargs.get('profiler', None)
+            logging.info("Best score of island %d increased to %s", island_id, score)
+
+        profiler: profile.Profiler = kwargs.get("profiler", None)
         if profiler:
-            global_sample_nums = kwargs.get('global_sample_nums', None)
-            sample_time = kwargs.get('sample_time', None)
-            evaluate_time = kwargs.get('evaluate_time', None)
+            global_sample_nums = kwargs.get("global_sample_nums", None)
+            sample_time = kwargs.get("sample_time", None)
+            evaluate_time = kwargs.get("evaluate_time", None)
+            eval_metrics_per_test = kwargs.get("eval_metrics_per_test", None)
             program.data_input = input_data
             program.data_output = output_data
             program.score = score
             program.global_sample_nums = global_sample_nums
             program.sample_time = sample_time
             program.evaluate_time = evaluate_time
+            if isinstance(eval_metrics_per_test, Mapping):
+                if len(eval_metrics_per_test) == 1:
+                    program.eval_metrics = next(iter(eval_metrics_per_test.values()))
+                else:
+                    program.eval_metrics_per_test = eval_metrics_per_test
             # Keep prompt link even when fail
-            program.prompt_id = kwargs.get('prompt_id', None)
-            program.version_generated = kwargs.get('version_generated', None)
-            program.head_type = kwargs.get('head_type', None)
-            profiler.register_function(program, island_id=island_id, scores_per_test=scores_per_test)
-            
-
+            program.prompt_id = kwargs.get("prompt_id", None)
+            program.version_generated = kwargs.get("version_generated", None)
+            program.head_type = kwargs.get("head_type", None)
+            profiler.register_function(
+                program, island_id=island_id, scores_per_test=scores_per_test
+            )
 
     def register_program(
-            self,
-            program: code_manipulation.Function,
-            island_id: int | None,
-            scores_per_test: ScoresPerTest,
-            input_data: pd.DataFrame,
-            output_data: pd.DataFrame,
-            **kwargs
+        self,
+        program: code_manipulation.Function,
+        island_id: int | None,
+        scores_per_test: ScoresPerTest,
+        input_data: pd.DataFrame,
+        output_data: pd.DataFrame,
+        **kwargs,
     ) -> None:
         """Registers new `program` skeleton hypotheses in the experience buffer."""
         if island_id is None:
             for island_id in range(len(self._islands)):
-                self._register_program_in_island(program, input_data, output_data, island_id, scores_per_test, **kwargs)
+                self._register_program_in_island(
+                    program,
+                    input_data,
+                    output_data,
+                    island_id,
+                    scores_per_test,
+                    **kwargs,
+                )
         else:
-            self._register_program_in_island(program, input_data, output_data, island_id, scores_per_test, **kwargs)
+            self._register_program_in_island(
+                program, input_data, output_data, island_id, scores_per_test, **kwargs
+            )
 
         # Check island reset
-        current_step = kwargs.get('global_sample_nums')
+        current_step = kwargs.get("global_sample_nums")
         if time.time() - self._last_reset_time > self._config.reset_period:
             if self._pre_reseed_table is not None and current_step is not None:
                 self._log_pre_reseed_metrics(global_step=current_step)
@@ -212,9 +254,9 @@ class ExperienceBuffer:
             self.reset_islands(global_step=current_step)
 
     def _log_pre_reseed_metrics(self, *, global_step: int) -> None:
-        '''
+        """
         Log the pre ressed table to wandb
-        '''
+        """
         if self._pre_reseed_table is None:
             return
         for island_id, island in enumerate(self._islands):
@@ -234,43 +276,40 @@ class ExperienceBuffer:
                 int(num_clusters),
                 mean_score,
                 variance,
-                best_score
+                best_score,
             )
         wandb.log(
-            {"Island_Updates/Pre_Reseed": self._pre_reseed_table},
-            step=global_step
+            {"Island_Updates/Pre_Reseed": self._pre_reseed_table}, step=global_step
         )
 
     def _log_reseed_metrics(self, *, global_step: int) -> None:
-        '''
+        """
         Log the reseed table to wandb
-        '''
+        """
         if self._reseed_table is None:
-            return 
-        
-        try: 
-            wandb.log(
-                {"Island_Updates/Reseed": self._reseed_table},
-                step=global_step 
-            )
-            
+            return
+
+        try:
+            wandb.log({"Island_Updates/Reseed": self._reseed_table}, step=global_step)
+
         except Exception as e:
             print("--- WANDB LOGGING FAILED FOR Reseed ---")
             print(f"ERROR: {e}")
             pass
-            
+
     def reset_islands(self, global_step: int | None = None) -> None:
         """Resets the weaker half of islands."""
         # Sort best scores after adding minor noise to break ties.
         indices_sorted_by_score: np.ndarray = np.argsort(
-            self._best_score_per_island +
-            np.random.randn(len(self._best_score_per_island)) * 1e-6)
+            self._best_score_per_island
+            + np.random.randn(len(self._best_score_per_island)) * 1e-6
+        )
         num_islands_to_reset = self._config.num_islands // 2
         reset_islands_ids = indices_sorted_by_score[:num_islands_to_reset]
         keep_islands_ids = indices_sorted_by_score[num_islands_to_reset:]
-        
+
         add_data_to_reseed_table = False
-        
+
         for island_id in reset_islands_ids:
             self._islands[island_id] = Island(
                 self._template,
@@ -278,11 +317,12 @@ class ExperienceBuffer:
                 self._config.functions_per_prompt,
                 self._meta_data,
                 self._config.cluster_sampling_temperature_init,
-                self._config.cluster_sampling_temperature_period)
-            self._best_score_per_island[island_id] = -float('inf')
+                self._config.cluster_sampling_temperature_period,
+            )
+            self._best_score_per_island[island_id] = -float("inf")
             founder_island_id = np.random.choice(keep_islands_ids)
             founder = self._best_program_per_island[founder_island_id]
-            founder_scores = self._best_scores_per_test_per_island[founder_island_id] 
+            founder_scores = self._best_scores_per_test_per_island[founder_island_id]
             if founder is None or founder_scores is None:
                 continue
             self._register_program_in_island(
@@ -291,9 +331,13 @@ class ExperienceBuffer:
                 None,
                 island_id,
                 founder_scores,
-                global_sample_nums=global_step
+                global_sample_nums=global_step,
             )
-            if self._reseed_table is not None and global_step is not None and founder is not None:
+            if (
+                self._reseed_table is not None
+                and global_step is not None
+                and founder is not None
+            ):
                 seed_score = self._best_score_per_island[island_id]
                 print(f"Island Reset: Island {reset_islands_ids}, Score: {seed_score}")
                 try:
@@ -301,47 +345,52 @@ class ExperienceBuffer:
                         int(global_step),
                         int(island_id),
                         int(founder_island_id),
-                        float(seed_score) if seed_score is not None and np.isfinite(seed_score) else None
+                        (
+                            float(seed_score)
+                            if seed_score is not None and np.isfinite(seed_score)
+                            else None
+                        ),
                     )
                     add_data_to_reseed_table = True
                 except Exception as e:
-                    print(f"--- WANDB DATA ADD FAILED FOR RESEED ---")
+                    print("--- WANDB DATA ADD FAILED FOR RESEED ---")
                     print(f"ERROR: {e}")
-                    print(f"DATA: global_step={global_step}, island_id={island_id}, founder_id={founder_island_id}, seed_score={seed_score}")
-                    
+                    print(
+                        f"DATA: global_step={global_step}, island_id={island_id}, founder_id={founder_island_id}, seed_score={seed_score}"
+                    )
+
         if add_data_to_reseed_table and global_step is not None:
-            self._log_reseed_metrics(global_step=global_step )
+            self._log_reseed_metrics(global_step=global_step)
+
 
 class Island:
     """A sub-population of the program skeleton experience buffer."""
 
     def __init__(
-            self,
-            template: code_manipulation.Program,
-            function_to_evolve: str,
-            functions_per_prompt: int,
-            meta_data: dict,
-            cluster_sampling_temperature_init: float,
-            cluster_sampling_temperature_period: int,
+        self,
+        template: code_manipulation.Program,
+        function_to_evolve: str,
+        functions_per_prompt: int,
+        meta_data: dict,
+        cluster_sampling_temperature_init: float,
+        cluster_sampling_temperature_period: int,
     ) -> None:
         self._template: code_manipulation.Program = template
         self._function_to_evolve: str = function_to_evolve
         self._functions_per_prompt: int = functions_per_prompt
         self._meta_data: dict = meta_data
         self._cluster_sampling_temperature_init = cluster_sampling_temperature_init
-        self._cluster_sampling_temperature_period = (
-            cluster_sampling_temperature_period)
+        self._cluster_sampling_temperature_period = cluster_sampling_temperature_period
 
         self._clusters: dict[Signature, Cluster] = {}
         self._num_programs: int = 0
 
-
     def register_program(
-            self,
-            data_input: pd.DataFrame,
-            data_output: list,
-            program: code_manipulation.Function,
-            scores_per_test: ScoresPerTest,
+        self,
+        data_input: pd.DataFrame,
+        data_output: list,
+        program: code_manipulation.Function,
+        scores_per_test: ScoresPerTest,
     ) -> None:
         """Stores a program on this island, in its appropriate cluster."""
         signature = _get_signature(scores_per_test)
@@ -352,22 +401,24 @@ class Island:
             self._clusters[signature].register_program(program, data_input, data_output)
         self._num_programs += 1
 
-
     def get_prompt(self) -> tuple[str, int]:
         """Constructs a prompt containing equation program skeletons from this island."""
         signatures = list(self._clusters.keys())
         cluster_scores = np.array(
-            [self._clusters[signature].score for signature in signatures])
-        
+            [self._clusters[signature].score for signature in signatures]
+        )
+
         period = self._cluster_sampling_temperature_period
         temperature = self._cluster_sampling_temperature_init * (
-                1 - (self._num_programs % period) / period)
+            1 - (self._num_programs % period) / period
+        )
         probabilities = _softmax(cluster_scores, temperature)
 
         functions_per_prompt = min(len(self._clusters), self._functions_per_prompt)
 
         idx = np.random.choice(
-            len(signatures), size=functions_per_prompt, p=probabilities)
+            len(signatures), size=functions_per_prompt, p=probabilities
+        )
         chosen_signatures = [signatures[i] for i in idx]
         implementations = []
         scores = []
@@ -381,56 +432,64 @@ class Island:
         sorted_scores = [scores[i] for i in indices]
         version_generated = len(sorted_implementations) + 1
         prompt_str = self._generate_prompt(sorted_implementations, sorted_scores)
-        return prompt_str, version_generated, sorted_implementations[-1].data_input, sorted_implementations[-1].data_output
-
+        return (
+            prompt_str,
+            version_generated,
+            sorted_implementations[-1].data_input,
+            sorted_implementations[-1].data_output,
+        )
 
     def _generate_prompt(
-            self,
-            implementations: Sequence[code_manipulation.Function],
-            scores: Sequence[float]) -> str:
-        """ Create a prompt containing a sequence of function `implementations`."""
+        self,
+        implementations: Sequence[code_manipulation.Function],
+        scores: Sequence[float],
+    ) -> str:
+        """Create a prompt containing a sequence of function `implementations`."""
         implementations = copy.deepcopy(implementations)
         # Format the names and docstrings of functions to be included in the prompt.
         versioned_functions: list[code_manipulation.Function] = []
         input_data = []
         output_data = []
-        for i, (implementation,score) in enumerate(zip(implementations, scores)):
-            new_function_name = f'{self._function_to_evolve}_v{i}'
+        for i, (implementation, score) in enumerate(zip(implementations, scores)):
+            new_function_name = f"{self._function_to_evolve}_v{i}"
             implementation.name = new_function_name
             score_abs = abs(score)
             score_doc = f"\n\nThis program scored: {score_abs:.4f}"
-            original_docstring = implementation.docstring or "" # safety feature for original func v0
-            
+            original_docstring = (
+                implementation.docstring or ""
+            )  # safety feature for original func v0
+
             # Update the docstring for all subsequent functions after `_v0`.
             if i >= 1:
                 implementation.docstring = (
-                    f'{score_doc}\n'
-                    f'Improved version of `{self._function_to_evolve}_v{i - 1}`.'
-                    )
-            else: 
-                implementation.docstring = (
-                    f'{score_doc}\n'
-                    f'{original_docstring}'
+                    f"{score_doc}\n"
+                    f"Improved version of `{self._function_to_evolve}_v{i - 1}`."
                 )
+            else:
+                implementation.docstring = f"{score_doc}\n" f"{original_docstring}"
             # If the function is recursive, replace calls to itself with its new name.
             input_data.append(implementation.data_input)
             output_data.append(implementation.data_output)
             implementation = code_manipulation.rename_function_calls(
-                str(implementation), self._function_to_evolve, new_function_name)
-            
+                str(implementation), self._function_to_evolve, new_function_name
+            )
+
             versioned_functions.append(
-                code_manipulation.text_to_function(implementation))
+                code_manipulation.text_to_function(implementation)
+            )
 
         # Create header of new function to be completed
         next_version = len(implementations)
-        new_function_name = f'{self._function_to_evolve}_v{next_version}'
-        
+        new_function_name = f"{self._function_to_evolve}_v{next_version}"
+
         header = dataclasses.replace(
             implementations[-1],
             name=new_function_name,
-            body='    <Replace with improved programm>\n    return df_output',
-            docstring=('Improved version of '
-                       f'`{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features.'),
+            body="    <Replace with improved programm>\n    return df_output",
+            docstring=(
+                "Improved version of "
+                f"`{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features."
+            ),
         )
         versioned_functions.append(header)
         # Replace functions in the template with the list constructed here.
@@ -440,14 +499,14 @@ class Island:
         df_input = input_data[-1].copy()
         if not df_input.index.name:
             df_input.reset_index(inplace=True, drop=True)
-        if any(col.startswith('Unnamed:') for col in df_input.columns):
+        if any(col.startswith("Unnamed:") for col in df_input.columns):
             # Drop the 'Unnamed:' column(s)
-            df_input = df_input.loc[:, ~df_input.columns.str.startswith('Unnamed:')]
-        
-        df_output = pd.DataFrame(output_data[-1], columns=['Result'])
+            df_input = df_input.loc[:, ~df_input.columns.str.startswith("Unnamed:")]
+
+        df_output = pd.DataFrame(output_data[-1], columns=["Result"])
         df_current = df_input.join(df_output)
-        df_current = df_current.sample(frac=1).head(10) # changed from 10 
-        
+        df_current = df_current.sample(frac=1).head(10)  # changed from 10
+
         total_column_list = [df_current.columns.tolist()]
         for selected_column in total_column_list:
             for icl_idx, icl_row in df_current.iterrows():
@@ -465,12 +524,16 @@ class Island:
                 if isinstance(entry, dict):
                     description = entry.get("description", "") or ""
                     if entry.get("context"):
-                        description = f"{description} ({entry['context']})" if description else entry["context"]
+                        description = (
+                            f"{description} ({entry['context']})"
+                            if description
+                            else entry["context"]
+                        )
                     type_hint = entry.get("type")
                 elif isinstance(entry, str):
                     description = entry
                 if not description:
-                    description = cname.replace('_', ' ')
+                    description = cname.replace("_", " ")
 
                 if type_hint:
                     normalized_type = str(type_hint).lower()
@@ -487,16 +550,20 @@ class Island:
                     clist = df_input[cname].dropna().unique().tolist()
                     clist = [str(c) for c in clist]
                     clist_str = ", ".join(clist)
-                    feature_name_list.append(f"- {cname}: {description} (categorical variable with categories [{clist_str}])")
+                    feature_name_list.append(
+                        f"- {cname}: {description} (categorical variable with categories [{clist_str}])"
+                    )
                 else:
                     min_val = input_data[-1][cname].min()
                     max_val = input_data[-1][cname].max()
-                    feature_name_list.append(f"- {cname}: {description} (numerical variable within range [{min_val}, {max_val}])")
-            
+                    feature_name_list.append(
+                        f"- {cname}: {description} (numerical variable within range [{min_val}, {max_val}])"
+                    )
+
             feature_desc = "\n".join(feature_name_list)
 
         new_prompt = str(prompt)
-        random_number = random.randint(0,2)
+        random_number = random.randint(0, 2)
 
         if random_number == 0:
             template_prefix = os.path.join("prompts", "operations_head.txt")
@@ -507,7 +574,9 @@ class Island:
             if os.path.exists(template_suffix):
                 with open(template_suffix) as f:
                     suffix = f.read()
-            new_prompt = new_prompt.replace('[PREFIX]', prefix).replace('[SUFFIX]', suffix)
+            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace(
+                "[SUFFIX]", suffix
+            )
         else:
             template_prefix = os.path.join("prompts", "domain_head.txt")
             if os.path.exists(template_prefix):
@@ -517,27 +586,42 @@ class Island:
             if os.path.exists(template_suffix):
                 with open(template_suffix) as f:
                     suffix = f.read()
-            new_prompt = new_prompt.replace('[PREFIX]', prefix).replace('[SUFFIX]', suffix)
-        new_prompt = new_prompt.replace('[EXAMPLES]', in_context_desc).replace('[FEATURES]', feature_desc)
+            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace(
+                "[SUFFIX]", suffix
+            )
+        new_prompt = new_prompt.replace("[EXAMPLES]", in_context_desc).replace(
+            "[FEATURES]", feature_desc
+        )
 
         return new_prompt
 
 
 class Cluster:
-    """ A cluster of programs on the same island and with the same Signature. """
+    """A cluster of programs on the same island and with the same Signature."""
 
-    def __init__(self, score: float, implementation: code_manipulation.Function, data_input: pd.DataFrame, data_output: pd.DataFrame):
+    def __init__(
+        self,
+        score: float,
+        implementation: code_manipulation.Function,
+        data_input: pd.DataFrame,
+        data_output: pd.DataFrame,
+    ):
         self._score = score
         self._programs: list[code_manipulation.Function] = [implementation]
         self._lengths: list[int] = [len(str(implementation))]
-        self._data_input : list[pd.DataFrame] = [data_input]
-        self._data_output : list[np.array] = [data_output]
+        self._data_input: list[pd.DataFrame] = [data_input]
+        self._data_output: list[np.array] = [data_output]
 
     @property
     def score(self) -> float:
         return self._score
 
-    def register_program(self, program: code_manipulation.Function, data_input: pd.DataFrame, data_output: pd.DataFrame) -> None:
+    def register_program(
+        self,
+        program: code_manipulation.Function,
+        data_input: pd.DataFrame,
+        data_output: pd.DataFrame,
+    ) -> None:
         """Adds `program` to the cluster."""
         self._programs.append(program)
         self._lengths.append(len(str(program)))
@@ -547,7 +631,8 @@ class Cluster:
     def sample_program(self) -> code_manipulation.Function:
         """Samples a program, giving higher probability to shorther programs."""
         normalized_lengths = (np.array(self._lengths) - min(self._lengths)) / (
-                max(self._lengths) + 1e-6)
+            max(self._lengths) + 1e-6
+        )
         probabilities = _softmax(-normalized_lengths, temperature=1.0)
 
         return np.random.choice(self._programs, p=probabilities)

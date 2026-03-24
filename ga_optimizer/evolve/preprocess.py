@@ -6,6 +6,7 @@ import json
 import os
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from typing import Callable, Dict, List, Optional, Set, TextIO, Tuple, cast
 
 import numpy as np
@@ -32,7 +33,9 @@ class ExecutedCandidate:
 
 
 def load_candidates(
-    samples_dir: str, config: Optional[GAOptimizerConfig] = None
+    samples_dir: str,
+    config: Optional[GAOptimizerConfig] = None,
+    source_file_glob: Optional[str] = None,
 ) -> List[FeatureCandidate]:
     """Load feature candidates from JSON files."""
     if not os.path.exists(samples_dir):
@@ -41,9 +44,23 @@ def load_candidates(
     resolved_config = config or DEFAULT_GA_CONFIG
     patterns = resolved_config.candidate_load.json_glob_patterns
     files = sorted(
-        {fpath for pattern in patterns for fpath in glob.glob(os.path.join(samples_dir, pattern))}
+        {
+            fpath
+            for pattern in patterns
+            for fpath in glob.glob(os.path.join(samples_dir, pattern))
+        }
     )
+    if source_file_glob:
+        files = [
+            fpath
+            for fpath in files
+            if fnmatch(os.path.relpath(fpath, samples_dir), source_file_glob)
+        ]
     if not files:
+        if source_file_glob:
+            raise ValueError(
+                f"No JSON files found in {samples_dir} matching source_file_glob='{source_file_glob}'"
+            )
         raise ValueError(f"No JSON files found in {samples_dir}")
 
     candidates: List[FeatureCandidate] = []
@@ -113,7 +130,11 @@ def load_candidates(
     if failed_count > 0:
         print("Candidate load failure reasons:")
         for reason, count in failed_reasons.most_common():
-            examples = ", ".join(failure_examples[reason]) if failure_examples[reason] else "n/a"
+            examples = (
+                ", ".join(failure_examples[reason])
+                if failure_examples[reason]
+                else "n/a"
+            )
             print(f"  - {reason}: {count} (examples: {examples})")
     return candidates
 
@@ -125,7 +146,9 @@ def select_top_k_per_island(
 ) -> List[FeatureCandidate]:
     """Select top-k candidates per island by descending score."""
     resolved_config = config or DEFAULT_GA_CONFIG
-    effective_k = k if k is not None else resolved_config.selection.default_top_k_per_island
+    effective_k = (
+        k if k is not None else resolved_config.selection.default_top_k_per_island
+    )
     if effective_k <= 0:
         raise ValueError("k must be > 0")
 
@@ -148,10 +171,15 @@ def _candidate_id(candidate: FeatureCandidate) -> str:
     return f"is{candidate.island_id}_s{candidate.sample_order}::{candidate.source_file}"
 
 
-def _is_better_candidate(candidate: FeatureCandidate, current: FeatureCandidate) -> bool:
+def _is_better_candidate(
+    candidate: FeatureCandidate, current: FeatureCandidate
+) -> bool:
     if candidate.score > current.score:
         return True
-    if candidate.score == current.score and candidate.sample_order < current.sample_order:
+    if (
+        candidate.score == current.score
+        and candidate.sample_order < current.sample_order
+    ):
         return True
     return False
 
@@ -214,11 +242,14 @@ def _extract_generated_feature_frame(
     col_names = [str(c) for c in df_out.columns]
     label_name = str(label_column) if label_column is not None else None
     keep_mask = [
-        col_name not in base_column_names and (label_name is None or col_name != label_name)
+        col_name not in base_column_names
+        and (label_name is None or col_name != label_name)
         for col_name in col_names
     ]
     generated_df = df_out.loc[:, keep_mask].copy()
-    generated_df.columns = [col_name for col_name, keep in zip(col_names, keep_mask) if keep]
+    generated_df.columns = [
+        col_name for col_name, keep in zip(col_names, keep_mask) if keep
+    ]
     return generated_df
 
 
@@ -252,15 +283,21 @@ def _append_report_line(report_file: TextIO, line: str) -> None:
     report_file.write(line + "\n")
 
 
-def _format_output_template(template: str, context: Dict[str, object], template_name: str) -> str:
+def _format_output_template(
+    template: str, context: Dict[str, object], template_name: str
+) -> str:
     try:
         return template.format(**context)
     except KeyError as exc:
         missing_key = exc.args[0]
-        raise ValueError(f"Invalid {template_name}: missing placeholder '{missing_key}'") from exc
+        raise ValueError(
+            f"Invalid {template_name}: missing placeholder '{missing_key}'"
+        ) from exc
 
 
-def _derive_execution_input(df: pd.DataFrame, label_column: Optional[str]) -> pd.DataFrame:
+def _derive_execution_input(
+    df: pd.DataFrame, label_column: Optional[str]
+) -> pd.DataFrame:
     if label_column is not None and label_column in df.columns:
         return df.drop(columns=[label_column])
     return df
@@ -478,15 +515,21 @@ def deduplicate_candidates_multistage(
         summary["total_input"] = len(executed)
         summary["dropped_execute"] = dropped_execute
 
-        stage1, dropped_stage1 = dedup_stage_by_output_columns(executed, report_file=report_file)
+        stage1, dropped_stage1 = dedup_stage_by_output_columns(
+            executed, report_file=report_file
+        )
         summary["dropped_stage_1_columns"] = dropped_stage1
 
-        stage2, dropped_stage2 = dedup_stage_by_semantic_hash(stage1, report_file=report_file)
+        stage2, dropped_stage2 = dedup_stage_by_semantic_hash(
+            stage1, report_file=report_file
+        )
         summary["dropped_stage_2_semantic_hash"] = dropped_stage2
 
         survivors = stage2
         summary["total_survivors"] = len(survivors)
-        summary["total_survivor_candidates"] = len({_candidate_key(i.candidate) for i in survivors})
+        summary["total_survivor_candidates"] = len(
+            {_candidate_key(i.candidate) for i in survivors}
+        )
 
         _append_report_line(report_file, "")
         _append_report_line(report_file, "=== Summary ===")
@@ -494,16 +537,22 @@ def deduplicate_candidates_multistage(
             report_file, f"total_input_candidates={summary['total_input_candidates']}"
         )
         _append_report_line(report_file, f"total_input={summary['total_input']}")
-        _append_report_line(report_file, f"dropped_execute={summary['dropped_execute']}")
+        _append_report_line(
+            report_file, f"dropped_execute={summary['dropped_execute']}"
+        )
         _append_report_line(
             report_file, f"dropped_stage_1_columns={summary['dropped_stage_1_columns']}"
         )
         _append_report_line(
-            report_file, f"dropped_stage_2_semantic_hash={summary['dropped_stage_2_semantic_hash']}"
+            report_file,
+            f"dropped_stage_2_semantic_hash={summary['dropped_stage_2_semantic_hash']}",
         )
-        _append_report_line(report_file, f"total_survivors={summary['total_survivors']}")
         _append_report_line(
-            report_file, f"total_survivor_candidates={summary['total_survivor_candidates']}"
+            report_file, f"total_survivors={summary['total_survivors']}"
+        )
+        _append_report_line(
+            report_file,
+            f"total_survivor_candidates={summary['total_survivor_candidates']}",
         )
 
     print("Deduplication stage summary:")
@@ -553,6 +602,7 @@ class FeatureExtractionPipeline:
         include_original: bool = True,
         data_dir: Optional[str] = None,
         config: Optional[GAOptimizerConfig] = None,
+        source_file_glob: Optional[str] = None,
     ) -> None:
         self.config = config or DEFAULT_GA_CONFIG
         self.samples_dir = samples_dir
@@ -564,6 +614,7 @@ class FeatureExtractionPipeline:
         self.label_column = label_column
         self.include_original = include_original
         self.data_dir = data_dir
+        self.source_file_glob = source_file_glob
 
     def run(
         self, df: pd.DataFrame, dataset_name: Optional[str] = None
@@ -571,12 +622,20 @@ class FeatureExtractionPipeline:
         resolved_label_column = self.label_column
         execution_input = _derive_execution_input(df, resolved_label_column)
 
-        candidates = load_candidates(self.samples_dir, config=self.config)
+        candidates = load_candidates(
+            self.samples_dir,
+            config=self.config,
+            source_file_glob=self.source_file_glob,
+        )
         islands = sorted({c.island_id for c in candidates})
         print(f"Loaded candidates: {len(candidates)}")
         print(f"Islands found: {len(islands)} ({', '.join(str(i) for i in islands)})")
-        selected = select_top_k_per_island(candidates, k=self.k_per_island, config=self.config)
-        print(f"Selected after top-k per island (k={self.k_per_island}): {len(selected)}")
+        selected = select_top_k_per_island(
+            candidates, k=self.k_per_island, config=self.config
+        )
+        print(
+            f"Selected after top-k per island (k={self.k_per_island}): {len(selected)}"
+        )
         resolved_dataset_name = dataset_name or self.config.output.default_dataset_name
         data_root_dir = self.data_dir or os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -649,7 +708,9 @@ class FeatureExtractionPipeline:
             base_cols.discard(str(label_column))
 
         if (candidates is None) == (selected_features is None):
-            raise ValueError("Exactly one of candidates or selected_features must be provided")
+            raise ValueError(
+                "Exactly one of candidates or selected_features must be provided"
+            )
 
         ordered_candidates: List[FeatureCandidate] = []
         allowed_features_by_candidate: Dict[Tuple[int, int, str], Set[str]] = {}
@@ -674,7 +735,9 @@ class FeatureExtractionPipeline:
                 out = (
                     cached_out
                     if cached_out is not None
-                    else _execute_candidate(candidate, runtime_input, config=resolved_config)
+                    else _execute_candidate(
+                        candidate, runtime_input, config=resolved_config
+                    )
                 )
                 out = _extract_generated_feature_frame(
                     df_out=out,
@@ -710,7 +773,9 @@ class FeatureExtractionPipeline:
                 )
 
         generated_df = (
-            pd.concat(generated_parts, axis=1) if generated_parts else pd.DataFrame(index=df.index)
+            pd.concat(generated_parts, axis=1)
+            if generated_parts
+            else pd.DataFrame(index=df.index)
         )
 
         label_series = None

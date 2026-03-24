@@ -3,8 +3,8 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
-from ga_optimizer.ga.data import chromosome_length, decode_chromosome, load_ga_input
 from ga_optimizer.config import DEFAULT_GA_CONFIG, GADataConfig
+from ga_optimizer.ga.data import chromosome_length, decode_chromosome, load_ga_input
 
 
 def test_load_ga_input_returns_shapes_and_ordered_feature_names(tmp_path):
@@ -55,7 +55,9 @@ def test_decode_chromosome_maps_binary_genes_to_feature_names():
 
 
 def test_decode_chromosome_raises_on_length_mismatch():
-    with pytest.raises(ValueError, match="chromosome length must match feature_names length"):
+    with pytest.raises(
+        ValueError, match="chromosome length must match feature_names length"
+    ):
         decode_chromosome([1, 0], ["f1"])
 
 
