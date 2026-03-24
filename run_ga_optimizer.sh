@@ -18,7 +18,6 @@ METADATA_CSV="${OUTPUT_DIR}/features.meta.csv"
 GA_OUTPUT_DIR="${GA_OUTPUT_DIR:-${OUTPUT_DIR}}"
 GA_CONFIG_PATH="${GA_CONFIG_PATH:-}"
 GA_PRESET="${GA_PRESET:-normal}"
-GA_PROFILE="${GA_PROFILE:-}"
 
 mkdir -p "${OUTPUT_DIR}"
 
@@ -46,21 +45,21 @@ python -m ga_optimizer.main \
 echo "GA selection config:"
 echo "  GA_CONFIG_PATH=${GA_CONFIG_PATH:-<none>}"
 echo "  GA_PRESET=${GA_PRESET}"
-echo "  GA_PROFILE=${GA_PROFILE:-<none>}"
 echo "  GA_OUTPUT_DIR=${GA_OUTPUT_DIR}"
+
+if [[ -z "${GA_CONFIG_PATH}" ]]; then
+  echo "ERROR: GA_CONFIG_PATH is required." >&2
+  exit 1
+fi
 
 GA_ARGS=(
   --input_csv "${OUTPUT_CSV}"
   --dataset_name "${PROBLEM_NAME}"
   --output_dir "${GA_OUTPUT_DIR}"
   --sep "${SEP}"
+  --config "${GA_CONFIG_PATH}"
+  --preset "${GA_PRESET}"
 )
-
-if [[ -n "${GA_CONFIG_PATH}" ]]; then
-  GA_ARGS+=(--config "${GA_CONFIG_PATH}" --preset "${GA_PRESET}")
-elif [[ -n "${GA_PROFILE}" ]]; then
-  GA_ARGS+=(--profile "${GA_PROFILE}")
-fi
 if [[ -n "${LABEL_COLUMN:-}" ]]; then
   GA_ARGS+=(--label_column "${LABEL_COLUMN}")
 fi

@@ -9,6 +9,7 @@ skips:
   - 'B603' # Subprocess execution
   - 'B607' # Subprocess partial path
   - 'B615' # HuggingFace downloads
+  - 'B102' # exec() is required for LLM generated code evaluation
 
 exclude_dirs: 
 - 'tests'

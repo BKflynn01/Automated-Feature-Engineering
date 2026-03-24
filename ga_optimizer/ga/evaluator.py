@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Cross-validated XGBoost evaluator used by the GA feature-selection loop.
+
+The evaluator prefers GPU execution when configured, but prediction is designed
+to degrade gracefully when CUDA/CuPy/runtime compatibility issues occur.
+"""
+
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable, List, Literal, Optional
@@ -18,6 +24,12 @@ from preprocessing import preprocess_datasets
 
 @lru_cache(maxsize=1)
 def _gpu_available_for_xgboost() -> bool:
+    """Return True only if XGBoost is CUDA-enabled and a tiny CUDA fit succeeds.
+
+    This performs a conservative runtime probe. Any failure (missing CUDA build,
+    unavailable device, driver mismatch, etc.) returns False so callers can
+    avoid hard failures and choose a CPU-safe path.
+    """
     try:
         build_info = xgb.build_info()
         if not bool(build_info.get("USE_CUDA", False)):
@@ -44,6 +56,13 @@ def _gpu_available_for_xgboost() -> bool:
 
 
 def _resolve_xgboost_device(requested_device: str) -> str:
+    """Resolve configured device value into the concrete device string.
+
+    - ``"auto"`` performs a runtime CUDA probe and returns ``"cuda"`` when
+      available, otherwise ``"cpu"``.
+    - Any explicit value (for example ``"cuda"``) is preserved, which lets the
+      caller force GPU usage.
+    """
     normalized = str(requested_device).strip().lower()
     if normalized == "auto":
         return "cuda" if _gpu_available_for_xgboost() else "cpu"
@@ -52,6 +71,8 @@ def _resolve_xgboost_device(requested_device: str) -> str:
 
 @dataclass
 class _XGBRFEvaluator:
+    """Callable evaluator that scores a feature subset via cross-validation."""
+
     X: pd.DataFrame
     y: pd.Series
     task: Literal["classification", "regression"]
@@ -69,6 +90,7 @@ class _XGBRFEvaluator:
     device: str
 
     def _build_estimator(self) -> xgb.XGBClassifier | xgb.XGBRegressor:
+        """Create an XGBoost estimator configured for the current task/device."""
         common_params: dict[str, object] = {
             "random_state": self.random_state,
         }
@@ -85,6 +107,7 @@ class _XGBRFEvaluator:
         raise ValueError(f"Unsupported task: {self.task}")
 
     def _iter_splits(self, X: pd.DataFrame, y: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Build train/test indices for time-series or standard K-fold CV."""
         if self.is_time_series:
             train_window, test_window, step_window = resolve_sliding_window_params(
                 n_samples=len(X.index),
@@ -134,6 +157,7 @@ class _XGBRFEvaluator:
         y_test: np.ndarray,
         y_pred: np.ndarray,
     ) -> float:
+        """Compute fold score with task-specific metrics and normalization rules."""
         if self.task == "classification":
             if self.scoring == "accuracy":
                 return float(accuracy_score(y_test, y_pred))
@@ -156,6 +180,17 @@ class _XGBRFEvaluator:
         model: xgb.XGBClassifier | xgb.XGBRegressor,
         X_test: pd.DataFrame,
     ) -> np.ndarray:
+        """Run prediction with GPU-first behavior and defensive fallback paths.
+
+        When ``self.device == "cuda"``, prediction proceeds in this order:
+        1) Try CuPy-backed input to keep inference on GPU.
+        2) If that fails, call ``Booster.predict`` on a constructed DMatrix.
+        3) If that also fails, fall back to ``model.predict``.
+
+        Exceptions are intentionally caught in fallback steps so evaluation keeps
+        running even when CUDA, CuPy, or wrapper-level prediction paths are
+        partially incompatible at runtime.
+        """
         if self.device == "cuda":
             # Best effort GPU inference path: CuPy input keeps data on-device and avoids
             # XGBoost's CPU fallback warning for inplace_predict.
@@ -178,10 +213,10 @@ class _XGBRFEvaluator:
                         feature_names = [str(col) for col in X_test.columns]
                         matrix_data = X_test.to_numpy()
                     elif isinstance(X_test, pd.Series):
-                        feature_names = [str(X_test.name)] if X_test.name is not None else None
+                        feature_names = [str(X_test.name)] if X_test.name is not None else None # type: ignore[assignment]
                         matrix_data = X_test.to_numpy().reshape(-1, 1)
                     else:
-                        feature_names = None
+                        feature_names = None # type: ignore[assignment]
                         matrix_data = np.asarray(X_test)
                     matrix = xgb.DMatrix(matrix_data, feature_names=feature_names)
                     raw_pred = np.asarray(model.get_booster().predict(matrix))
@@ -206,6 +241,15 @@ class _XGBRFEvaluator:
         return model.predict(X_test)
 
     def __call__(self, selected_features: List[str]) -> float:
+        """Evaluate one feature subset and return mean CV score.
+
+        This method:
+        - selects and encodes features/target as needed,
+        - builds fold splits,
+        - preprocesses train/test fold frames,
+        - trains XGBoost and scores each fold,
+        - returns the mean fold score.
+        """
         if not selected_features:
             return 0.0
 
@@ -230,7 +274,7 @@ class _XGBRFEvaluator:
             y_train = y_values[train_idx]
             y_test = y_values[test_idx]
 
-            X_train_new, X_test_new = preprocess_datasets(X_train, X_test, None)
+            X_train_new, X_test_new = preprocess_datasets(X_train, X_test, None)  # type: ignore[misc]
             model = self._build_estimator()
             model.fit(X_train_new, y_train)
             y_pred = self._predict(model, X_test_new)
@@ -256,6 +300,11 @@ def build_xgbrf_evaluator(
     random_state: Optional[int] = None,
     config: Optional[GAOptimizerConfig] = None,
 ) -> Callable[[List[str]], float]:
+    """Factory for the GA evaluator with resolved configuration defaults.
+
+    Device selection is resolved once here. ``device='auto'`` probes runtime
+    CUDA availability and chooses CPU when unavailable to avoid crashing.
+    """
     resolved_config = config or DEFAULT_GA_CONFIG
     model_config = resolved_config.xgbrf
     resolved_device = _resolve_xgboost_device(model_config.device)

@@ -9,7 +9,7 @@ def test_run_ga_optimizer_script_supports_config_and_preset_env():
     assert "--preset" in script
 
 
-def test_run_ga_optimizer_script_retains_legacy_profile_support():
+def test_run_ga_optimizer_script_removes_legacy_profile_support():
     script = Path("run_ga_optimizer.sh").read_text(encoding="utf-8")
-    assert "GA_PROFILE" in script
-    assert "--profile" in script
+    assert "GA_PROFILE" not in script
+    assert 'GA_ARGS+=(--profile "${GA_PROFILE}")' not in script

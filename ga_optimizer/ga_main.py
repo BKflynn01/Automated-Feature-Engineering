@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ga_optimizer.config import (
     DEFAULT_GA_CONFIG,
     GAPreset,
-    GARunProfile,
     DatasetRunConfig,
     get_ga_preset_values,
-    get_ga_profile,
     load_dataset_run_config,
 )
 from ga_optimizer.ga.runner import run_ga
@@ -25,18 +22,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         default=None,
-        help="Path to dataset YAML config (new path; preferred over --profile).",
+        help="Path to dataset YAML config (required).",
     )
     parser.add_argument(
         "--preset",
         default=DEFAULT_GA_CONFIG.ga_presets.default_preset.value,
         choices=tuple(p.value for p in GAPreset),
-        help="Universal GA preset to apply when --config is used.",
-    )
-    parser.add_argument(
-        "--profile",
-        default=None,
-        help="(Deprecated) GA config profile name from ga_optimizer.config",
+        help="Universal GA preset to apply to the loaded dataset config.",
     )
     parser.add_argument(
         "--dataset_name",
@@ -260,39 +252,8 @@ def _apply_cli_overrides(resolved: dict[str, Any], args: argparse.Namespace) -> 
     resolved["output_dir"] = str(output_dir)
 
 
-def _legacy_profile_settings(profile: GARunProfile) -> dict[str, Any]:
-    return {
-        "profile": profile.name,
-        "dataset_name": profile.dataset_name,
-        "input_csv": profile.input_csv,
-        "label_column": profile.label_column,
-        "task": profile.task,
-        "scoring": profile.scoring,
-        "is_time_series": profile.is_time_series,
-        "time_series_train_window": profile.time_series_train_window,
-        "time_series_test_window": profile.time_series_test_window,
-        "time_series_step_window": profile.time_series_step_window,
-        "time_series_gap": profile.time_series_gap,
-        "max_time_series_splits": DEFAULT_GA_CONFIG.evaluator.max_time_series_splits,
-        "n_generations": profile.n_generations,
-        "population_size": profile.population_size,
-        "cx_prob": profile.cx_prob,
-        "mut_prob": profile.mut_prob,
-        "tournament_size": profile.tournament_size,
-        "cv_folds": profile.cv_folds,
-        "n_estimators": profile.n_estimators,
-        "n_jobs": DEFAULT_GA_CONFIG.runner.n_jobs,
-        "early_stop_patience": DEFAULT_GA_CONFIG.runner.early_stop_patience,
-        "early_stop_min_delta": DEFAULT_GA_CONFIG.runner.early_stop_min_delta,
-        "random_state": profile.random_state,
-        "sep": profile.sep,
-        "output_dir": None,
-    }
-
-
 def _dataset_settings(dataset_cfg: DatasetRunConfig) -> dict[str, Any]:
     return {
-        "profile": None,
         "dataset_name": dataset_cfg.dataset_name,
         "input_csv": dataset_cfg.input_csv,
         "label_column": dataset_cfg.label_column,
@@ -321,40 +282,27 @@ def _dataset_settings(dataset_cfg: DatasetRunConfig) -> dict[str, Any]:
 
 
 def resolve_run_settings(args: argparse.Namespace) -> dict[str, Any]:
-    if args.config is not None and args.profile is not None:
-        raise ValueError("Cannot use both --profile and --config in the same invocation")
+    if args.config is None:
+        raise ValueError("Missing required --config. Legacy --profile mode has been removed.")
 
-    if args.config is not None:
-        dataset_cfg = load_dataset_run_config(args.config)
-        settings = _dataset_settings(dataset_cfg)
-        preset = get_ga_preset_values(args.preset)
-        settings.update(
-            {
-                "preset": preset.preset.value,
-                "n_generations": preset.n_generations,
-                "population_size": preset.population_size,
-                "cv_folds": preset.cv_folds,
-                "n_estimators": preset.n_estimators,
-                "cx_prob": preset.cx_prob,
-                "mut_prob": preset.mut_prob,
-                "tournament_size": preset.tournament_size,
-                "max_time_series_splits": preset.max_time_series_splits,
-                "early_stop_patience": preset.early_stop_patience,
-                "early_stop_min_delta": preset.early_stop_min_delta,
-            }
-        )
-        _apply_cli_overrides(settings, args)
-        return settings
-
-    resolved_profile = args.profile or DEFAULT_GA_CONFIG.ga_profiles.default_profile
-    warnings.warn(
-        "Profile mode is deprecated and will be removed in a future release. "
-        "Use --config <path> with --preset instead.",
-        DeprecationWarning,
-        stacklevel=2,
+    dataset_cfg = load_dataset_run_config(args.config)
+    settings = _dataset_settings(dataset_cfg)
+    preset = get_ga_preset_values(args.preset)
+    settings.update(
+        {
+            "preset": preset.preset.value,
+            "n_generations": preset.n_generations,
+            "population_size": preset.population_size,
+            "cv_folds": preset.cv_folds,
+            "n_estimators": preset.n_estimators,
+            "cx_prob": preset.cx_prob,
+            "mut_prob": preset.mut_prob,
+            "tournament_size": preset.tournament_size,
+            "max_time_series_splits": preset.max_time_series_splits,
+            "early_stop_patience": preset.early_stop_patience,
+            "early_stop_min_delta": preset.early_stop_min_delta,
+        }
     )
-    profile = get_ga_profile(resolved_profile)
-    settings = _legacy_profile_settings(profile)
     _apply_cli_overrides(settings, args)
     return settings
 
@@ -369,11 +317,11 @@ def main() -> None:
 
     print("Resolved GA run settings:")
     print(json.dumps(settings, indent=2, sort_keys=True))
-
+    
     best_features, _best_score = run_ga(
         csv_path=str(input_path),
         label_column=str(settings["label_column"]),
-        task=str(settings["task"]),
+        task=str(settings["task"]),  # type: ignore
         scoring=str(settings["scoring"]),
         output_dir=str(settings["output_dir"]),
         is_time_series=bool(settings["is_time_series"]),

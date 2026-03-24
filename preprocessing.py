@@ -1,11 +1,14 @@
 import copy
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
 
+CategoryMapping = Dict[object, int]
+ColumnMappings = Dict[str, CategoryMapping]
 
-def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
+
+def create_mappings(df_train: pd.DataFrame) -> ColumnMappings:
     """
     Creates a dictionary of mappings for categorical columns in the given dataframe.
 
@@ -13,7 +16,7 @@ def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
     df_train (pandas.DataFrame): The dataframe to create mappings for.
 
     Returns:
-    Dict[str, Dict[int, str]]: A dictionary of mappings for categorical columns in the dataframe.
+    Dict[str, Dict[object, int]]: A dictionary of mappings for categorical columns in the dataframe.
     """
     mappings = {}
     for col in df_train.columns:
@@ -25,14 +28,14 @@ def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
 
 
 def convert_categorical_to_integer_f(
-    column: pd.Series, mapping: Optional[Dict[int, str]] = None
+    column: pd.Series, mapping: Optional[CategoryMapping] = None
 ) -> pd.Series:
     """
     Converts a categorical column to integer values using the given mapping.
 
     Parameters:
     column (pandas.Series): The column to convert.
-    mapping (Dict[int, str], optional): The mapping to use for the conversion. Defaults to None.
+    mapping (Dict[object, int], optional): The mapping to use for the conversion. Defaults to None.
 
     Returns:
     pandas.Series: The converted column.
@@ -45,13 +48,13 @@ def convert_categorical_to_integer_f(
     return column
 
 
-def preprocess_dataset(df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]) -> pd.DataFrame:
+def preprocess_dataset(df: pd.DataFrame, mappings: ColumnMappings) -> pd.DataFrame:
     """
     Converts the categorical columns in the given dataframe to integer values using the given mappings.
 
     Parameters:
     df (pandas.DataFrame): The dataframe to convert.
-    mappings (Dict[str, Dict[int, str]]): The mappings to use for the conversion.
+    mappings (Dict[str, Dict[object, int]]): The mappings to use for the conversion.
 
     Returns:
     pandas.DataFrame: The converted dataframe.
@@ -65,24 +68,29 @@ def preprocess_dataset(df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]) ->
 
     return df
 
-
 def preprocess_datasets(
     df_train: pd.DataFrame,
     df_test: Optional[pd.DataFrame],
-    target_column: str,
-    return_mappings: Optional[bool] = False,
-) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[Dict[str, Dict[int, str]]]]:
+    target_column: Optional[str],
+    return_mappings: bool = False,
+) -> (
+    tuple[pd.DataFrame, Optional[pd.DataFrame]]
+    | tuple[pd.DataFrame, Optional[pd.DataFrame], ColumnMappings]
+):
     """
     Converts the categorical columns in the given training and test dataframes to integer values using mappings created from the training dataframe.
 
     Parameters:
     df_train (pandas.DataFrame): The training dataframe to convert.
     df_test (pandas.DataFrame, optional): The test dataframe to convert. Defaults to None.
-    target_column (str): The name of the target column.
+    target_column (Optional[str]): The name of the target column (or None if not present in df_train).
     return_mappings (bool, optional): Whether to return the mappings used for the conversion. Defaults to False.
 
     Returns:
-    Tuple[pandas.DataFrame, Optional[pandas.DataFrame], Optional[Dict[str, Dict[int, str]]]]: The converted training dataframe, the converted test dataframe (if it exists), and the mappings used for the conversion (if `return_mappings` is True).
+    Tuple[pandas.DataFrame, Optional[pandas.DataFrame]] or
+    Tuple[pandas.DataFrame, Optional[pandas.DataFrame], Dict[str, Dict[object, int]]]:
+        The converted training dataframe, the converted test dataframe (if it exists), and
+        the mappings used for the conversion (if `return_mappings` is True).
     """
     df_train = copy.deepcopy(df_train)
     df_train = df_train.infer_objects()
