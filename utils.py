@@ -27,7 +27,8 @@ def is_categorical(x: pd.Series, meta_data: dict, column_name: str) -> bool:
     Checks if a column is categorical using the metadata JSON as the
     primary source of truth.
     """
-    assert type(x) is pd.Series
+    if not isinstance(x, pd.Series):
+        raise TypeError("x must be a pandas Series")
 
     # Get the list of categorical names from the metadata
     categorical_feature_names = [
