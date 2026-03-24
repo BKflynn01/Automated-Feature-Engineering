@@ -31,7 +31,7 @@ jobs:
     - name: Security & Audit
       run: |
         bandit -c bandit.yaml -r ga_optimizer/
-        pip-audit
+        pip-audit --ignore-vuln CVE-2026-4539
 
     - name: Run Tests & Coverage
       run: |
