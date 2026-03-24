@@ -6,4 +6,4 @@ pandas==2.2.3
 pytest>=7.4.0
 pytest-cov>=4.1.0
 types-PyYAML>=6.0
-pygments>=2.19.3
+pygments>=2.19.2
