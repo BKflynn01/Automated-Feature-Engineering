@@ -1,12 +1,5 @@
--r requirements.txt
+-r requirements-ci.txt
 
-pytest>=7.4.0
-pytest-cov>=4.1.0
 pytest-benchmark>=4.0.0
 
-black>=23.12.0
-ruff>=0.6.0
-
-mypy>=1.8.0
-bandit>=1.7.9
 pre-commit>=3.6.0
