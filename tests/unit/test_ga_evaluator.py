@@ -180,9 +180,7 @@ def test_evaluator_uses_xgboost_params_from_config():
 def test_evaluator_supports_categorical_features():
     X = pd.DataFrame(
         {
-            "cat": pd.Series(
-                ["a", "b", "c", "a", "b", "c", "a", "b", "c"], dtype="string"
-            ),
+            "cat": pd.Series(["a", "b", "c", "a", "b", "c", "a", "b", "c"], dtype="string"),
             "num": [1.0, 2.2, 1.8, 1.5, 2.6, 2.1, 1.3, 2.4, 1.9],
         }
     )

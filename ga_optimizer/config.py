@@ -5,10 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Literal
 
-try:
-    import yaml
-except ModuleNotFoundError:  # pragma: no cover - fallback used only in minimal envs
-    yaml = None
+import yaml
 
 
 @dataclass(frozen=True)
@@ -114,9 +111,7 @@ class RunnerConfig:
     run_manifest_filename: str = "ga_run_manifest.json"
     default_classification_scoring: str = "accuracy"
     default_regression_scoring: str = "neg_root_mean_squared_error"
-    default_time_series_regression_scoring: str = (
-        "neg_normalized_root_mean_squared_error"
-    )
+    default_time_series_regression_scoring: str = "neg_normalized_root_mean_squared_error"
 
 
 @dataclass(frozen=True)
@@ -321,12 +316,8 @@ def get_ga_profile(
     for profile in config.ga_profiles.profiles:
         if profile.name == profile_name:
             return profile
-    available = ", ".join(
-        sorted(profile.name for profile in config.ga_profiles.profiles)
-    )
-    raise ValueError(
-        f"Unknown GA profile '{profile_name}'. Available profiles: {available}"
-    )
+    available = ", ".join(sorted(profile.name for profile in config.ga_profiles.profiles))
+    raise ValueError(f"Unknown GA profile '{profile_name}'. Available profiles: {available}")
 
 
 def _require_str(data: dict[str, object], key: str) -> str:
@@ -461,9 +452,7 @@ def load_dataset_run_config(path: str | Path) -> DatasetRunConfig:
     )
 
 
-def _parse_simple_yaml_mapping(
-    text: str, *, config_path: Path
-) -> dict[str, object]:
+def _parse_simple_yaml_mapping(text: str, *, config_path: Path) -> dict[str, object]:
     parsed: dict[str, object] = {}
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -487,11 +476,7 @@ def _parse_simple_yaml_scalar(value_text: str) -> object:
         return True
     if value_text in {"false", "False", "FALSE"}:
         return False
-    if (
-        len(value_text) >= 2
-        and value_text[0] == value_text[-1]
-        and value_text[0] in {"'", '"'}
-    ):
+    if len(value_text) >= 2 and value_text[0] == value_text[-1] and value_text[0] in {"'", '"'}:
         return value_text[1:-1]
     try:
         return int(value_text)

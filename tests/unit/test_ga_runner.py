@@ -199,9 +199,7 @@ def test_evaluate_invalid_individuals_uses_cache_prepass():
     population = [ind_a, ind_b]
     cache: dict[tuple[int, ...], float] = {}
 
-    evaluated = ga_runner._evaluate_invalid_individuals(
-        toolbox, population, cache, verbose=False
-    )
+    evaluated = ga_runner._evaluate_invalid_individuals(toolbox, population, cache, verbose=False)
 
     assert evaluated == 2
     assert calls["count"] == 1

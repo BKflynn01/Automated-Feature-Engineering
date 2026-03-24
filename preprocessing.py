@@ -17,13 +17,9 @@ def create_mappings(df_train: pd.DataFrame) -> Dict[str, Dict[int, str]]:
     """
     mappings = {}
     for col in df_train.columns:
-        if (
-            df_train[col].dtype.name == "category"
-            or df_train[col].dtype.name == "object"
-        ):
+        if df_train[col].dtype.name == "category" or df_train[col].dtype.name == "object":
             mappings[col] = {
-                v: i
-                for i, v in enumerate(df_train[col].astype("category").cat.categories)
+                v: i for i, v in enumerate(df_train[col].astype("category").cat.categories)
             }
     return mappings
 
@@ -49,9 +45,7 @@ def convert_categorical_to_integer_f(
     return column
 
 
-def preprocess_dataset(
-    df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]
-) -> pd.DataFrame:
+def preprocess_dataset(df: pd.DataFrame, mappings: Dict[str, Dict[int, str]]) -> pd.DataFrame:
     """
     Converts the categorical columns in the given dataframe to integer values using the given mappings.
 
@@ -64,9 +58,7 @@ def preprocess_dataset(
     """
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.apply(
-        lambda col: convert_categorical_to_integer_f(
-            col, mapping=mappings.get(col.name)
-        ),
+        lambda col: convert_categorical_to_integer_f(col, mapping=mappings.get(col.name)),
         axis=0,
     )
     df = df.astype(float)

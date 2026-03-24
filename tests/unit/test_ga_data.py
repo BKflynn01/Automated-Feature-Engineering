@@ -39,9 +39,7 @@ def test_load_ga_input_raises_when_no_features_after_label_drop(tmp_path):
     csv_path = tmp_path / "merged.csv"
     pd.DataFrame({"target": [0, 1]}).to_csv(csv_path, index=False)
 
-    with pytest.raises(
-        ValueError, match="CSV has no feature columns after removing label column"
-    ):
+    with pytest.raises(ValueError, match="CSV has no feature columns after removing label column"):
         load_ga_input(str(csv_path), label_column="target")
 
 
@@ -55,9 +53,7 @@ def test_decode_chromosome_maps_binary_genes_to_feature_names():
 
 
 def test_decode_chromosome_raises_on_length_mismatch():
-    with pytest.raises(
-        ValueError, match="chromosome length must match feature_names length"
-    ):
+    with pytest.raises(ValueError, match="chromosome length must match feature_names length"):
         decode_chromosome([1, 0], ["f1"])
 
 

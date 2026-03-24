@@ -24,9 +24,7 @@ def _resolve_population_size(requested_population_size: int, n_features: int) ->
         return int(requested_population_size)
     cfg = DEFAULT_GA_CONFIG.toolbox
     proposed = int(np.ceil(n_features * float(cfg.dynamic_population_ratio)))
-    return max(
-        int(cfg.dynamic_population_min), min(int(cfg.dynamic_population_max), proposed)
-    )
+    return max(int(cfg.dynamic_population_min), min(int(cfg.dynamic_population_max), proposed))
 
 
 def _evaluate_invalid_individuals(
@@ -126,9 +124,7 @@ def _evaluate_invalid_individuals(
     return total
 
 
-def _population_stats(
-    stats: tools.Statistics, population: list[Any]
-) -> dict[str, float]:
+def _population_stats(stats: tools.Statistics, population: list[Any]) -> dict[str, float]:
     compiled = stats.compile(population)
     return {
         "avg": float(compiled["avg"]),
@@ -149,15 +145,9 @@ def run_ga(
     scoring: str,
     output_dir: str,
     is_time_series: bool = False,
-    time_series_train_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_train_window,
-    time_series_test_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_test_window,
-    time_series_step_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_step_window,
+    time_series_train_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_train_window,
+    time_series_test_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_test_window,
+    time_series_step_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_step_window,
     time_series_gap: int = DEFAULT_GA_CONFIG.evaluator.time_series_gap,
     max_time_series_splits: Optional[int] = DEFAULT_GA_CONFIG.evaluator.max_time_series_splits,
     n_generations: int = DEFAULT_GA_CONFIG.runner.n_generations,
@@ -390,9 +380,7 @@ def run_ga(
             DEFAULT_GA_CONFIG.runner.generation_trace_filename,
         )
         logbook_path = os.path.join(output_dir, DEFAULT_GA_CONFIG.runner.logbook_filename)
-        run_manifest_path = os.path.join(
-            output_dir, DEFAULT_GA_CONFIG.runner.run_manifest_filename
-        )
+        run_manifest_path = os.path.join(output_dir, DEFAULT_GA_CONFIG.runner.run_manifest_filename)
 
         with open(best_features_path, "w", encoding="utf-8") as f:
             for feature_name in best_feature_names:
@@ -405,9 +393,7 @@ def run_ga(
             feature for feature in best_feature_names if feature in source_df.columns
         ]
         reduced_columns.append(label_column)
-        source_df.loc[:, reduced_columns].to_csv(
-            best_feature_dataset_path, index=False, sep=sep
-        )
+        source_df.loc[:, reduced_columns].to_csv(best_feature_dataset_path, index=False, sep=sep)
 
         logbook_df = pd.DataFrame(log_rows)
         logbook_df.to_csv(logbook_path, index=False)

@@ -184,10 +184,7 @@ def test_log_aggregate_run_logs_expected_series_and_table():
     assert len(fake_wandb.init_calls) == 1
     assert fake_wandb.finish_calls == 1
     assert fake_wandb.init_calls[0]["tags"] == ["llmfe_classification_aggregate"]
-    assert (
-        fake_wandb.init_calls[0]["config"]["run_type"]
-        == "llmfe_classification_aggregate"
-    )
+    assert fake_wandb.init_calls[0]["config"]["run_type"] == "llmfe_classification_aggregate"
 
     step_logs = [entry for entry in fake_wandb.log_calls if entry["step"] is not None]
     assert len(step_logs) == 2
@@ -198,8 +195,6 @@ def test_log_aggregate_run_logs_expected_series_and_table():
         assert "Aggregate/Confusion_Matrix" in payload
 
     table_logs = [
-        entry
-        for entry in fake_wandb.log_calls
-        if "Aggregate/Per_Sample_Table" in entry["data"]
+        entry for entry in fake_wandb.log_calls if "Aggregate/Per_Sample_Table" in entry["data"]
     ]
     assert len(table_logs) == 1

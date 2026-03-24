@@ -217,9 +217,7 @@ class Profiler:
             if instruction_prompt:
                 combined_prompt = "\n".join([instruction_prompt, prompt_code])
             _prev = combined_prompt.replace("<", "&lt;").replace(">", "&gt;")
-            wandb.log(
-                {"Prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step
-            )
+            wandb.log({"Prompts/text": wandb.Html(f"<pre>{_prev}</pre>")}, step=prompt_step)
 
     def _log_wandb(
         self,
@@ -332,17 +330,13 @@ class Profiler:
             ) as exc:
                 logging.warning("W&B histogram log failed: %s", exc)
 
-    def _log_cluster_histogram(
-        self, *, island_id: int, signature_value: float, step: int
-    ) -> None:
+    def _log_cluster_histogram(self, *, island_id: int, signature_value: float, step: int) -> None:
         counter = self._cluster_counts[island_id]
         counter[signature_value] += 1
         table = Table(columns=["signature", "count"])
         for sig, count in sorted(counter.items()):
             table.add_data(float(sig), int(count))
-        chart = plot.bar(
-            table, "signature", "count", title=f"Island {island_id} Cluster Histogram"
-        )
+        chart = plot.bar(table, "signature", "count", title=f"Island {island_id} Cluster Histogram")
         try:
             wandb.log({f"Clusters/{island_id}/Histogram": chart}, step=step)
         except (AuthenticationError, CommError, RequestException, TimeoutError) as exc:

@@ -208,9 +208,7 @@ def test_main_raises_when_samples_dir_missing(monkeypatch, tmp_path):
         ga_main.main()
 
 
-def test_main_respects_explicit_metadata_sep_label_and_exclude_original(
-    monkeypatch, tmp_path
-):
+def test_main_respects_explicit_metadata_sep_label_and_exclude_original(monkeypatch, tmp_path):
     input_csv = tmp_path / "input.csv"
     sample_dir = tmp_path / "samples"
     output_csv = tmp_path / "nested" / "output.csv"

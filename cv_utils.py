@@ -20,9 +20,7 @@ def resolve_sliding_window_params(
     if gap < 0:
         raise ValueError("gap must be >= 0")
 
-    resolved_test = (
-        test_window if test_window is not None else max(1, n_samples // (n_splits + 1))
-    )
+    resolved_test = test_window if test_window is not None else max(1, n_samples // (n_splits + 1))
     resolved_train = (
         train_window
         if train_window is not None

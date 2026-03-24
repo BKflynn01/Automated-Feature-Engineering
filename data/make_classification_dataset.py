@@ -26,18 +26,11 @@ DATASET_NAME = "btc"
 
 def _parse_target_as_numeric(series: pd.Series) -> pd.Series:
     """Parse target values into numeric form, supporting simple percent strings."""
-    cleaned = (
-        series.astype(str)
-        .str.strip()
-        .str.replace(",", "", regex=False)
-        .str.removesuffix("%")
-    )
+    cleaned = series.astype(str).str.strip().str.replace(",", "", regex=False).str.removesuffix("%")
     numeric = pd.to_numeric(cleaned, errors="coerce")
     if numeric.isna().any():
         bad_count = int(numeric.isna().sum())
-        raise ValueError(
-            f"Could not parse {bad_count} value(s) in the last column as numeric."
-        )
+        raise ValueError(f"Could not parse {bad_count} value(s) in the last column as numeric.")
     return numeric
 
 

@@ -15,13 +15,9 @@ def test_default_ga_config_values_match_expected_baseline():
         "modify_features",
     )
     assert (
-        DEFAULT_GA_CONFIG.output.dedup_report_filename_template
-        == "dedup_report_{dataset_name}.txt"
+        DEFAULT_GA_CONFIG.output.dedup_report_filename_template == "dedup_report_{dataset_name}.txt"
     )
-    assert (
-        DEFAULT_GA_CONFIG.output.manifest_filename_template
-        == "top_{k_per_island}_samples.csv"
-    )
+    assert DEFAULT_GA_CONFIG.output.manifest_filename_template == "top_{k_per_island}_samples.csv"
     assert DEFAULT_GA_CONFIG.ga_data.default_csv_sep == ","
     assert DEFAULT_GA_CONFIG.ga_data.selected_gene_value == 1
     assert DEFAULT_GA_CONFIG.xgbrf.n_estimators is None
@@ -53,20 +49,12 @@ def test_default_ga_config_values_match_expected_baseline():
     assert DEFAULT_GA_CONFIG.runner.early_stop_min_delta == 0.0
     assert DEFAULT_GA_CONFIG.runner.best_features_filename == "ga_best_features.txt"
     assert DEFAULT_GA_CONFIG.runner.best_features_csv_filename == "ga_best_features.csv"
-    assert (
-        DEFAULT_GA_CONFIG.runner.best_feature_dataset_filename
-        == "ga_best_feature_dataset.csv"
-    )
-    assert (
-        DEFAULT_GA_CONFIG.runner.generation_trace_filename == "ga_generation_trace.csv"
-    )
+    assert DEFAULT_GA_CONFIG.runner.best_feature_dataset_filename == "ga_best_feature_dataset.csv"
+    assert DEFAULT_GA_CONFIG.runner.generation_trace_filename == "ga_generation_trace.csv"
     assert DEFAULT_GA_CONFIG.runner.logbook_filename == "ga_logbook.csv"
     assert DEFAULT_GA_CONFIG.runner.run_manifest_filename == "ga_run_manifest.json"
     assert DEFAULT_GA_CONFIG.runner.default_classification_scoring == "accuracy"
-    assert (
-        DEFAULT_GA_CONFIG.runner.default_regression_scoring
-        == "neg_root_mean_squared_error"
-    )
+    assert DEFAULT_GA_CONFIG.runner.default_regression_scoring == "neg_root_mean_squared_error"
     assert (
         DEFAULT_GA_CONFIG.runner.default_time_series_regression_scoring
         == "neg_normalized_root_mean_squared_error"

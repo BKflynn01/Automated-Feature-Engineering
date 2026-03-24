@@ -21,9 +21,7 @@ os.environ["HF_TOKEN"] = "ENTER YOUR API KEY"
 parser = ArgumentParser()
 parser.add_argument("--gpu_ids", nargs="+", default=["0", "1", "2", "3"])
 parser.add_argument("--quantization", default=False, action="store_true")
-parser.add_argument(
-    "--model_path", type=str, default="meta-llama/Llama-3.1-8B-Instruct"
-)
+parser.add_argument("--model_path", type=str, default="meta-llama/Llama-3.1-8B-Instruct")
 parser.add_argument("--host", type=str, default=None)
 parser.add_argument("--port", type=int, default=None)
 parser.add_argument("--temperature", type=float, default=0.8)
@@ -102,9 +100,7 @@ def completions():
         do_sample = params.get("do_sample", args.do_sample)
         top_k = params.get("top_k", args.top_k)
         top_p = params.get("top_p", args.top_p)
-        num_return_sequences = params.get(
-            "num_return_sequences", args.num_return_sequences
-        )
+        num_return_sequences = params.get("num_return_sequences", args.num_return_sequences)
         eos_token_id = params.get("eos_token_id", args.eos_token_id)
         pad_token_id = params.get("pad_token_id", args.pad_token_id)
         max_repeat_prompt = params.get("max_repeat_prompt", args.max_repeat_prompt)
@@ -138,9 +134,7 @@ def completions():
 
         content = []
         for i, out_ in enumerate(output):
-            content.append(
-                tokenizer.decode(output[i, len(inputs[i]) :], skip_special_tokens=True)
-            )
+            content.append(tokenizer.decode(output[i, len(inputs[i]) :], skip_special_tokens=True))
 
         # Clear cache
         gc.collect()

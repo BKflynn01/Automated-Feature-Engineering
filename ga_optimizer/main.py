@@ -28,9 +28,7 @@ def parse_args() -> argparse.Namespace:
             "'btc_gpt3.5_split_*/samples/*.json'"
         ),
     )
-    parser.add_argument(
-        "--output_csv", required=True, help="Path to write merged output CSV"
-    )
+    parser.add_argument("--output_csv", required=True, help="Path to write merged output CSV")
     parser.add_argument(
         "--metadata_csv",
         default=None,
@@ -75,9 +73,7 @@ def resolve_label_column(
 ) -> str | None:
     if label_column:
         if label_column not in df.columns:
-            raise ValueError(
-                f"label column '{label_column}' not found in input columns"
-            )
+            raise ValueError(f"label column '{label_column}' not found in input columns")
         return label_column
     if use_last_column:
         return str(df.columns[-1])
@@ -91,9 +87,7 @@ def main() -> None:
     samples_path = Path(args.samples_dir)
     output_path = Path(args.output_csv)
     metadata_path = (
-        Path(args.metadata_csv)
-        if args.metadata_csv
-        else output_path.with_suffix(".meta.csv")
+        Path(args.metadata_csv) if args.metadata_csv else output_path.with_suffix(".meta.csv")
     )
 
     if not input_path.exists():

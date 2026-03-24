@@ -104,9 +104,7 @@ class Sandbox(ABC):
         **kwargs,
     ) -> tuple[Any, bool]:
         """Return `function_to_run(test_input)` and whether execution succeeded."""
-        raise NotImplementedError(
-            "Must provide a sandbox for executing untrusted code."
-        )
+        raise NotImplementedError("Must provide a sandbox for executing untrusted code.")
 
 
 class LocalSandbox(Sandbox):
@@ -173,12 +171,8 @@ class LocalSandbox(Sandbox):
         function = code_manipulation.text_to_program(program).get_function(
             kwargs.get("func_to_evolve", "equation")
         )
-        print(
-            f"{str(function).strip()}\n-----------------------------------------------------"
-        )
-        print(
-            f"Score: {results}\n=====================================================\n\n"
-        )
+        print(f"{str(function).strip()}\n-----------------------------------------------------")
+        print(f"Score: {results}\n=====================================================\n\n")
 
     def _compile_and_run_function(
         self,
@@ -284,9 +278,7 @@ class Evaluator:
             sample, version_generated, self._template, self._function_to_evolve
         )
         is_time_series = bool(self._inputs.get("data", {}).get("is_time_series", False))
-        leakage_findings = (
-            _detect_time_series_leakage(new_function.body) if is_time_series else []
-        )
+        leakage_findings = _detect_time_series_leakage(new_function.body) if is_time_series else []
         if leakage_findings:
             print(
                 f"Rejected sample due to potential time-series leakage: {', '.join(leakage_findings)}"
@@ -339,9 +331,7 @@ class Evaluator:
                 **kwargs,
                 input_data=input_data,
                 output_data=output_data,
-                eval_metrics_per_test=(
-                    eval_metrics_per_test if eval_metrics_per_test else None
-                ),
+                eval_metrics_per_test=(eval_metrics_per_test if eval_metrics_per_test else None),
                 evaluate_time=evaluate_time,
             )
 

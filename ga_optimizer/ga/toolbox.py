@@ -11,9 +11,7 @@ from ga_optimizer.ga.data import decode_chromosome
 try:
     creator.FitnessMax
 except AttributeError:
-    creator.create(
-        "FitnessMax", base.Fitness, weights=DEFAULT_GA_CONFIG.toolbox.fitness_weights
-    )
+    creator.create("FitnessMax", base.Fitness, weights=DEFAULT_GA_CONFIG.toolbox.fitness_weights)
 
 try:
     creator.Individual
@@ -33,20 +31,12 @@ def build_toolbox(
 ) -> base.Toolbox:
     resolved_config = config or DEFAULT_GA_CONFIG
     resolved_population_size = (
-        population_size
-        if population_size is not None
-        else resolved_config.toolbox.population_size
+        population_size if population_size is not None else resolved_config.toolbox.population_size
     )
-    resolved_cx_prob = (
-        cx_prob if cx_prob is not None else resolved_config.toolbox.cx_prob
-    )
-    resolved_mut_prob = (
-        mut_prob if mut_prob is not None else resolved_config.toolbox.mut_prob
-    )
+    resolved_cx_prob = cx_prob if cx_prob is not None else resolved_config.toolbox.cx_prob
+    resolved_mut_prob = mut_prob if mut_prob is not None else resolved_config.toolbox.mut_prob
     resolved_tournament_size = (
-        tournament_size
-        if tournament_size is not None
-        else resolved_config.toolbox.tournament_size
+        tournament_size if tournament_size is not None else resolved_config.toolbox.tournament_size
     )
 
     toolbox = base.Toolbox()

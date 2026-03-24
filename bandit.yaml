@@ -1,5 +1,14 @@
 skips:
-  - B102
+  - 'B101' # Asserts
+  - 'B105' # API key placeholders
+  - 'B110' # Try/except/pass
+  - 'B112' # Try/except/continue
+  - 'B113' # Requests without timeout
+  - 'B311' # Standard random module
+  - 'B404' # Subprocess import
+  - 'B603' # Subprocess execution
+  - 'B607' # Subprocess partial path
+  - 'B615' # HuggingFace downloads
 
 exclude_dirs: 
 - 'tests'

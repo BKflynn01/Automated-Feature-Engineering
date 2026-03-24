@@ -85,9 +85,7 @@ def aggregate_sample_metrics(rows: Sequence[Mapping[str, Any]]) -> list[dict[str
     return aggregated_rows
 
 
-def _build_confusion_payload(
-    *, wandb_api: Any, tn: int, fp: int, fn: int, tp: int
-) -> Any:
+def _build_confusion_payload(*, wandb_api: Any, tn: int, fp: int, fn: int, tp: int) -> Any:
     """Build a confusion-matrix visual when possible, otherwise a count table."""
     total = int(tn + fp + fn + tp)
     if total <= 0:

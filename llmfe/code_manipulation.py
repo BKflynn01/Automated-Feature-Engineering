@@ -74,13 +74,10 @@ class Program:
         function_names = [f.name for f in self.functions]
         count = function_names.count(function_name)
         if count == 0:
-            raise ValueError(
-                f"function {function_name} does not exist in program:\n{str(self)}"
-            )
+            raise ValueError(f"function {function_name} does not exist in program:\n{str(self)}")
         if count > 1:
             raise ValueError(
-                f"function {function_name} exists more than once in program:\n"
-                f"{str(self)}"
+                f"function {function_name} exists more than once in program:\n" f"{str(self)}"
             )
         index = function_names.index(function_name)
 
@@ -113,9 +110,7 @@ class ProgramVisitor(ast.NodeVisitor):
                     decorator_start_line = min(
                         decorator.lineno for decorator in node.decorator_list
                     )
-                    self._preface = "\n".join(
-                        self._codelines[: decorator_start_line - 1]
-                    )
+                    self._preface = "\n".join(self._codelines[: decorator_start_line - 1])
                 else:
                     self._preface = "\n".join(self._codelines[: node.lineno - 1])
 
@@ -124,9 +119,7 @@ class ProgramVisitor(ast.NodeVisitor):
 
             # Extract the docstring.
             docstring = None
-            if isinstance(node.body[0], ast.Expr) and isinstance(
-                node.body[0].value, ast.Str
-            ):
+            if isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
                 docstring = f'  """{ast.literal_eval(ast.unparse(node.body[0]))}"""'
                 if len(node.body) > 1:
                     body_start_line = node.body[1].lineno - 1
@@ -170,8 +163,7 @@ def text_to_function(text: str) -> Function:
 
     if len(program.functions) != 1:
         raise ValueError(
-            f"Only one function expected, got {len(program.functions)}"
-            f":\n{program.functions}"
+            f"Only one function expected, got {len(program.functions)}" f":\n{program.functions}"
         )
 
     return program.functions[0]
@@ -249,9 +241,7 @@ def rename_function_calls(code: str, source_name: str, target_name: str) -> str:
 
 def get_functions_called(code: str) -> MutableSet[str]:
     """Return the set of all functions called in `code`."""
-    return set(
-        token.string for token, is_call in _yield_token_and_is_call(code) if is_call
-    )
+    return set(token.string for token, is_call in _yield_token_and_is_call(code) if is_call)
 
 
 def yield_decorated(code: str, module: str, name: str) -> Iterator[str]:

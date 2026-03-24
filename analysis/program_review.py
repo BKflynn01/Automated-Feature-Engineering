@@ -206,17 +206,11 @@ def main():
     parser.add_argument("--input_file", required=True, help="Path to the .jsonl log")
     parser.add_argument("--api_key", required=True, help="Gemini API Key")
     parser.add_argument("--wandb_run_id", required=True, help="WandB Run ID to resume")
-    parser.add_argument(
-        "--metadata_path", required=True, help="Path to the metadata JSON file"
-    )
+    parser.add_argument("--metadata_path", required=True, help="Path to the metadata JSON file")
 
     # Arguments pull defaults from the Config class
-    parser.add_argument(
-        "--wandb_project", default=ScriptConfig.WANDB_PROJECT, help="WandB Project"
-    )
-    parser.add_argument(
-        "--model", default=ScriptConfig.DEFAULT_MODEL, help="Model version"
-    )
+    parser.add_argument("--wandb_project", default=ScriptConfig.WANDB_PROJECT, help="WandB Project")
+    parser.add_argument("--model", default=ScriptConfig.DEFAULT_MODEL, help="Model version")
     parser.add_argument(
         "--temperature",
         type=float,
@@ -253,9 +247,7 @@ def main():
     print(f"Resuming WandB Run ID: {args.wandb_run_id}...")
     try:
         # Init wandb once, and log everything at the end
-        with wandb.init(
-            project=args.wandb_project, id=args.wandb_run_id, resume="must"
-        ) as run:
+        with wandb.init(project=args.wandb_project, id=args.wandb_run_id, resume="must") as run:
 
             # Init Weave *inside* the successful run context
             weave.init(ScriptConfig.WEAVE_PROJECT)
@@ -379,9 +371,7 @@ def main():
                 )
                 run.log({"Program_Evaluation/Score_vs_Classification_Table": box_table})
 
-            print(
-                f"Uploaded {len(all_classifications)} total feature reviews to WandB."
-            )
+            print(f"Uploaded {len(all_classifications)} total feature reviews to WandB.")
 
     except Exception as e:
         print(f"WandB Upload Failed: {e}")
@@ -393,9 +383,7 @@ def main():
         final_backup_json["review"].extend(review_list)
 
     base_name = os.path.splitext(os.path.basename(args.input_file))[0]
-    review_path = os.path.join(
-        os.path.dirname(args.input_file), f"{base_name}_review.json"
-    )
+    review_path = os.path.join(os.path.dirname(args.input_file), f"{base_name}_review.json")
 
     with open(review_path, "w") as f:
         json.dump(final_backup_json, f, indent=2)

@@ -24,9 +24,7 @@ def add_numba_decorator(
     # check if 'import numba' already exists
     numba_imported = False
     for node in tree.body:
-        if isinstance(node, ast.Import) and any(
-            alias.name == "numba" for alias in node.names
-        ):
+        if isinstance(node, ast.Import) and any(alias.name == "numba" for alias in node.names):
             numba_imported = True
             break
 
@@ -46,9 +44,7 @@ def add_numba_decorator(
                     ctx=ast.Load(),
                 ),
                 args=[],
-                keywords=[
-                    ast.keyword(arg="nopython", value=ast.NameConstant(value=True))
-                ],
+                keywords=[ast.keyword(arg="nopython", value=ast.NameConstant(value=True))],
             )
             # add the decorator to the decorator_list of the node
             node.decorator_list.append(decorator)

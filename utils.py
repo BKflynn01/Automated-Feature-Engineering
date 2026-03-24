@@ -31,9 +31,7 @@ def is_categorical(x: pd.Series, meta_data: dict, column_name: str) -> bool:
         raise TypeError("x must be a pandas Series")
 
     # Get the list of categorical names from the metadata
-    categorical_feature_names = [
-        f.get("name") for f in meta_data.get("categorical_features", [])
-    ]
+    categorical_feature_names = [f.get("name") for f in meta_data.get("categorical_features", [])]
 
     # Is the column name in our official list
     if column_name in categorical_feature_names:

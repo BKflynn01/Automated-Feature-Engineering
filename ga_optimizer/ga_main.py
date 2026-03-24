@@ -251,9 +251,11 @@ def _apply_cli_overrides(resolved: dict[str, Any], args: argparse.Namespace) -> 
     output_dir = (
         Path(args.output_dir)
         if args.output_dir is not None
-        else Path(str(resolved["output_dir"]))
-        if resolved.get("output_dir")
-        else _build_default_output_dir(str(resolved["dataset_name"]))
+        else (
+            Path(str(resolved["output_dir"]))
+            if resolved.get("output_dir")
+            else _build_default_output_dir(str(resolved["dataset_name"]))
+        )
     )
     resolved["output_dir"] = str(output_dir)
 

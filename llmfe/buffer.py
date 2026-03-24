@@ -145,9 +145,7 @@ class ExperienceBuffer:
     def get_prompt(self) -> Prompt:
         """Returns a prompt containing samples from one chosen island."""
         island_id = np.random.randint(len(self._islands))
-        code, version_generated, data_input, data_output = self._islands[
-            island_id
-        ].get_prompt()
+        code, version_generated, data_input, data_output = self._islands[island_id].get_prompt()
 
         return Prompt(code, version_generated, island_id, data_input, data_output)
 
@@ -161,9 +159,7 @@ class ExperienceBuffer:
         **kwargs,
     ) -> None:
         """Registers `program` in the specified island."""
-        self._islands[island_id].register_program(
-            input_data, output_data, program, scores_per_test
-        )
+        self._islands[island_id].register_program(input_data, output_data, program, scores_per_test)
         score = _reduce_score(scores_per_test)
         if score > self._best_score_per_island[island_id]:
             self._best_program_per_island[island_id] = program
@@ -278,9 +274,7 @@ class ExperienceBuffer:
                 variance,
                 best_score,
             )
-        wandb.log(
-            {"Island_Updates/Pre_Reseed": self._pre_reseed_table}, step=global_step
-        )
+        wandb.log({"Island_Updates/Pre_Reseed": self._pre_reseed_table}, step=global_step)
 
     def _log_reseed_metrics(self, *, global_step: int) -> None:
         """
@@ -301,8 +295,7 @@ class ExperienceBuffer:
         """Resets the weaker half of islands."""
         # Sort best scores after adding minor noise to break ties.
         indices_sorted_by_score: np.ndarray = np.argsort(
-            self._best_score_per_island
-            + np.random.randn(len(self._best_score_per_island)) * 1e-6
+            self._best_score_per_island + np.random.randn(len(self._best_score_per_island)) * 1e-6
         )
         num_islands_to_reset = self._config.num_islands // 2
         reset_islands_ids = indices_sorted_by_score[:num_islands_to_reset]
@@ -333,11 +326,7 @@ class ExperienceBuffer:
                 founder_scores,
                 global_sample_nums=global_step,
             )
-            if (
-                self._reseed_table is not None
-                and global_step is not None
-                and founder is not None
-            ):
+            if self._reseed_table is not None and global_step is not None and founder is not None:
                 seed_score = self._best_score_per_island[island_id]
                 print(f"Island Reset: Island {reset_islands_ids}, Score: {seed_score}")
                 try:
@@ -404,9 +393,7 @@ class Island:
     def get_prompt(self) -> tuple[str, int]:
         """Constructs a prompt containing equation program skeletons from this island."""
         signatures = list(self._clusters.keys())
-        cluster_scores = np.array(
-            [self._clusters[signature].score for signature in signatures]
-        )
+        cluster_scores = np.array([self._clusters[signature].score for signature in signatures])
 
         period = self._cluster_sampling_temperature_period
         temperature = self._cluster_sampling_temperature_init * (
@@ -416,9 +403,7 @@ class Island:
 
         functions_per_prompt = min(len(self._clusters), self._functions_per_prompt)
 
-        idx = np.random.choice(
-            len(signatures), size=functions_per_prompt, p=probabilities
-        )
+        idx = np.random.choice(len(signatures), size=functions_per_prompt, p=probabilities)
         chosen_signatures = [signatures[i] for i in idx]
         implementations = []
         scores = []
@@ -462,8 +447,7 @@ class Island:
             # Update the docstring for all subsequent functions after `_v0`.
             if i >= 1:
                 implementation.docstring = (
-                    f"{score_doc}\n"
-                    f"Improved version of `{self._function_to_evolve}_v{i - 1}`."
+                    f"{score_doc}\n" f"Improved version of `{self._function_to_evolve}_v{i - 1}`."
                 )
             else:
                 implementation.docstring = f"{score_doc}\n" f"{original_docstring}"
@@ -474,9 +458,7 @@ class Island:
                 str(implementation), self._function_to_evolve, new_function_name
             )
 
-            versioned_functions.append(
-                code_manipulation.text_to_function(implementation)
-            )
+            versioned_functions.append(code_manipulation.text_to_function(implementation))
 
         # Create header of new function to be completed
         next_version = len(implementations)
@@ -574,9 +556,7 @@ class Island:
             if os.path.exists(template_suffix):
                 with open(template_suffix) as f:
                     suffix = f.read()
-            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace(
-                "[SUFFIX]", suffix
-            )
+            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace("[SUFFIX]", suffix)
         else:
             template_prefix = os.path.join("prompts", "domain_head.txt")
             if os.path.exists(template_prefix):
@@ -586,9 +566,7 @@ class Island:
             if os.path.exists(template_suffix):
                 with open(template_suffix) as f:
                     suffix = f.read()
-            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace(
-                "[SUFFIX]", suffix
-            )
+            new_prompt = new_prompt.replace("[PREFIX]", prefix).replace("[SUFFIX]", suffix)
         new_prompt = new_prompt.replace("[EXAMPLES]", in_context_desc).replace(
             "[FEATURES]", feature_desc
         )

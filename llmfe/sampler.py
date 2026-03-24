@@ -81,9 +81,7 @@ class Sampler:
                     prompt_code=prompt.code,
                     num_samples=self._samples_per_prompt,
                     step_hint=self._get_global_sample_nums(),
-                    head_type=(
-                        "operations" if "<Operators>" in prompt.code else "domain"
-                    ),
+                    head_type=("operations" if "<Operators>" in prompt.code else "domain"),
                     instruction_prompt=instruction_prompt,
                 )
             # DELETE
@@ -104,9 +102,7 @@ class Sampler:
                 f.write(f"ts: {datetime.datetime.now().isoformat()}\n")
                 # f.write(f"island_id: {prompt.island_id} | head_type: {head_type}  \n")
                 f.write("----------------------------------------\n")
-                f.write(
-                    prompt.code if isinstance(prompt.code, str) else str(prompt.code)
-                )
+                f.write(prompt.code if isinstance(prompt.code, str) else str(prompt.code))
                 f.write("\n========================================\n")
 
             # END OF DELETE
@@ -120,9 +116,7 @@ class Sampler:
                 sample = "\n    import pandas as pd\n    import numpy as np\n" + sample
                 self._global_sample_nums_plus_one()
                 cur_global_sample_nums = self._get_global_sample_nums()
-                chosen_evaluator: evaluator.Evaluator = np.random.choice(
-                    self._evaluators
-                )
+                chosen_evaluator: evaluator.Evaluator = np.random.choice(self._evaluators)
                 chosen_evaluator.analyse(
                     sample,
                     island_id=prompt.island_id,
@@ -203,9 +197,7 @@ def _extract_body(sample: str, config: config_lib.Config) -> str:
 
 
 class LocalLLM(LLM):
-    def __init__(
-        self, samples_per_prompt: int, batch_inference: bool = True, trim=True
-    ) -> None:
+    def __init__(self, samples_per_prompt: int, batch_inference: bool = True, trim=True) -> None:
         """
         Args:
             batch_inference: Use batch inference when sample equation program skeletons. The batch size equals to the samples_per_prompt.
@@ -274,9 +266,7 @@ class LocalLLM(LLM):
         else:
             return self._draw_samples_local(prompt, config)
 
-    def _draw_samples_local(
-        self, prompt: str, config: config_lib.Config
-    ) -> Collection[str]:
+    def _draw_samples_local(self, prompt: str, config: config_lib.Config) -> Collection[str]:
         # instruction
         prompt = "\n".join([self._instruction_prompt, prompt])
         while True:
@@ -294,17 +284,13 @@ class LocalLLM(LLM):
 
                 # trim equation program skeleton body from samples
                 if self._trim:
-                    all_samples = [
-                        _extract_body(sample, config) for sample in all_samples
-                    ]
+                    all_samples = [_extract_body(sample, config) for sample in all_samples]
 
                 return all_samples
             except Exception:
                 continue
 
-    def _draw_samples_api(
-        self, prompt: str, config: config_lib.Config
-    ) -> Collection[str]:
+    def _draw_samples_api(self, prompt: str, config: config_lib.Config) -> Collection[str]:
 
         def _is_gpt5(name: str) -> bool:
             n = (name or "").lower()
@@ -334,9 +320,7 @@ class LocalLLM(LLM):
                 if parts:
                     return "".join(p.get("text", "") for p in parts)
                 if "content" in cand and isinstance(cand["content"], dict):
-                    return "".join(
-                        p.get("text", "") for p in cand["content"].get("parts", [])
-                    )
+                    return "".join(p.get("text", "") for p in cand["content"].get("parts", []))
             except Exception:
                 pass
             return obj.get("candidates", [{}])[0].get("text", "")
@@ -346,9 +330,7 @@ class LocalLLM(LLM):
 
         # DLETE AFTER
         os.makedirs("./logs/prompt_dumps", exist_ok=True)
-        with open(
-            "./logs/prompt_dumps/full_prompt_11_18.txt", "a", encoding="utf-8"
-        ) as f:
+        with open("./logs/prompt_dumps/full_prompt_11_18.txt", "a", encoding="utf-8") as f:
             f.write("\n====================== NEW PROMPT ======================\n")
             f.write(prompt if isinstance(prompt, str) else str(prompt))
             f.write("\n========================================================\n\n")
@@ -364,9 +346,7 @@ class LocalLLM(LLM):
         # Settings
         temperature = getattr(config, "temperature", 0.2)
         verbosity = getattr(config, "verbosity", "low")  # "low" | "medium" | "high"
-        reasoning_effort = getattr(
-            config, "reasoning_effort", "low"
-        )  # "minimal"|"medium"|"high"
+        reasoning_effort = getattr(config, "reasoning_effort", "low")  # "minimal"|"medium"|"high"
 
         for _ in range(self._samples_per_prompt):
             attempts, backoff = 0, 0.5
@@ -376,9 +356,7 @@ class LocalLLM(LLM):
                     if use_gemini:
                         if not google_key:
                             raise RuntimeError("Missing Gemini API key")
-                        conn = http.client.HTTPSConnection(
-                            "generativelanguage.googleapis.com"
-                        )
+                        conn = http.client.HTTPSConnection("generativelanguage.googleapis.com")
                         payload = {
                             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                             "generationConfig": {
@@ -386,9 +364,7 @@ class LocalLLM(LLM):
                                 "maxOutputTokens": 55000,
                             },
                         }
-                        path = (
-                            f"/v1beta/models/{model}:generateContent?key={google_key}"
-                        )
+                        path = f"/v1beta/models/{model}:generateContent?key={google_key}"
                         conn.request(
                             "POST",
                             path,
@@ -430,9 +406,7 @@ class LocalLLM(LLM):
                         res = conn.getresponse()
                         raw = res.read().decode("utf-8")
                         if res.status >= 400:
-                            raise RuntimeError(
-                                f"Responses API error {res.status}: {raw}"
-                            )
+                            raise RuntimeError(f"Responses API error {res.status}: {raw}")
                         data = json.loads(raw)
                         # print("\n================= RAW GPT-5 API RESPONSE ==================")
                         # print(data)
@@ -464,9 +438,7 @@ class LocalLLM(LLM):
                         res = conn.getresponse()
                         raw = res.read().decode("utf-8")
                         if res.status >= 400:
-                            raise RuntimeError(
-                                f"Chat Completions error {res.status}: {raw}"
-                            )
+                            raise RuntimeError(f"Chat Completions error {res.status}: {raw}")
                         data = json.loads(raw)
                         # print("\n================= RAW GPT API RESPONSE ==================")
                         # print(data)
@@ -476,18 +448,14 @@ class LocalLLM(LLM):
                     if self._trim:
                         response_text = _extract_body(response_text, config)
 
-                    all_samples.append(
-                        response_text or "    # empty response\n    pass\n"
-                    )
+                    all_samples.append(response_text or "    # empty response\n    pass\n")
                     break
 
                 except Exception as e:
                     print(f"API call attempt {attempts} failed. Error: {e}")
                     if attempts >= 6:
                         print("Max retries reached. Giving up on this sample.")
-                        all_samples.append(
-                            "    # generation failed after retries\n    pass\n"
-                        )
+                        all_samples.append("    # generation failed after retries\n    pass\n")
                         break
 
                     backoff = min(backoff * 2, 8.0)
@@ -551,9 +519,7 @@ class LocalLLM(LLM):
         headers = {"Content-Type": "application/json"}
         response = requests.post(self._url, data=json.dumps(data), headers=headers)
 
-        if (
-            response.status_code == 200
-        ):  # Server status code 200 indicates successful HTTP request!
+        if response.status_code == 200:  # Server status code 200 indicates successful HTTP request!
             response = response.json()["content"]
 
             return response if self._batch_inference else response[0]

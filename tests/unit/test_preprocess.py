@@ -195,9 +195,7 @@ def test_select_top_k_per_island_uses_config_default_when_k_not_provided():
         FeatureCandidate(2, 0.70, "d", 1, "d.json"),
         FeatureCandidate(2, 0.20, "e", 2, "e.json"),
     ]
-    config = replace(
-        DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1)
-    )
+    config = replace(DEFAULT_GA_CONFIG, selection=SelectionConfig(default_top_k_per_island=1))
 
     selected = select_top_k_per_island(candidates, config=config)
 
@@ -651,9 +649,7 @@ def test_build_full_dataframe_uses_cached_selected_feature_outputs(monkeypatch):
             "_execute_candidate should not be called when cached output_df is available"
         )
 
-    monkeypatch.setattr(
-        "ga_optimizer.evolve.preprocess._execute_candidate", _should_not_execute
-    )
+    monkeypatch.setattr("ga_optimizer.evolve.preprocess._execute_candidate", _should_not_execute)
 
     out_df, meta = FeatureExtractionPipeline.build_full_dataframe(
         df=df,

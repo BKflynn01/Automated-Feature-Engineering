@@ -35,9 +35,7 @@ parser.add_argument("--time_series_test_window", type=int, default=None)
 parser.add_argument("--time_series_step_window", type=int, default=None)
 parser.add_argument("--time_series_gap", type=int, default=0)
 parser.add_argument("--outer_splits", type=int, default=1)
-parser.add_argument(
-    "--wandb_project", type=str, default="llmfe-feature-engineering-btc"
-)
+parser.add_argument("--wandb_project", type=str, default="llmfe-feature-engineering-btc")
 parser.add_argument("--wandb_group", type=str, default=None)
 parser.add_argument("--wandb_run_name", type=str, default=None)
 parser.add_argument("--run_type", type=str, default="llmfe")
@@ -74,9 +72,7 @@ if __name__ == "__main__":
         "btc_classification",
     }
     is_regression = problem_name in regression_problems
-    is_time_series = args.is_time_series or (
-        problem_name in default_time_series_problems
-    )
+    is_time_series = args.is_time_series or (problem_name in default_time_series_problems)
     if is_regression:
         print("Regression Accepted")
 
@@ -96,9 +92,7 @@ if __name__ == "__main__":
     # End alteration for data cat
 
     attribute_names = df.columns[:-1].tolist()
-    is_cat_map = {
-        name: is_categorical(df[name], meta_data, name) for name in attribute_names
-    }
+    is_cat_map = {name: is_categorical(df[name], meta_data, name) for name in attribute_names}
     X = df.convert_dtypes()
     y = df[target_attr].to_numpy()
     label_list = np.unique(y).tolist()
@@ -126,8 +120,7 @@ if __name__ == "__main__":
         with open(meta_data_name, "r") as f:
             filed_meta_data = json.load(f)
         if isinstance(filed_meta_data, dict) and (
-            "continuous_features" in filed_meta_data
-            or "categorical_features" in filed_meta_data
+            "continuous_features" in filed_meta_data or "categorical_features" in filed_meta_data
         ):
             for feature in filed_meta_data.get("continuous_features", []):
                 name = feature.get("name")
@@ -244,14 +237,10 @@ if __name__ == "__main__":
             cv_splitter = (
                 KFold(n_splits=args.outer_splits, shuffle=True, random_state=42)
                 if is_regression
-                else StratifiedKFold(
-                    n_splits=args.outer_splits, shuffle=True, random_state=42
-                )
+                else StratifiedKFold(n_splits=args.outer_splits, shuffle=True, random_state=42)
             )
             print(f"Outer split mode. {cv_splitter}")
-            for split_id, (train_idx, _test_idx) in enumerate(
-                cv_splitter.split(X, y), start=1
-            ):
+            for split_id, (train_idx, _test_idx) in enumerate(cv_splitter.split(X, y), start=1):
                 X_train_fold = X.iloc[train_idx]
                 y_train_fold = y[train_idx]
                 outer_jobs.append(
@@ -267,9 +256,7 @@ if __name__ == "__main__":
                 )
 
     if not outer_jobs:
-        raise RuntimeError(
-            "No valid outer split jobs were produced. Check split settings."
-        )
+        raise RuntimeError("No valid outer split jobs were produced. Check split settings.")
 
     # Load config and parameters
     from llmfe import config as config_lib
@@ -330,9 +317,7 @@ if __name__ == "__main__":
         api_key = os.environ.get("GEMINI_API_EVALUATOR")
         review_model = "gemini-2.5-flash"
         if api_key and wandb_run_id:
-            print(
-                f"Triggering Gemini Review for Split {split_id} / Run ID: {wandb_run_id}"
-            )
+            print(f"Triggering Gemini Review for Split {split_id} / Run ID: {wandb_run_id}")
             review_process = subprocess.Popen(
                 [
                     "python",
@@ -351,9 +336,7 @@ if __name__ == "__main__":
             )
             review_processes.append(review_process)
         else:
-            print(
-                f"Split {split_id}: skipping review due to missing API Key or WandB Run ID."
-            )
+            print(f"Split {split_id}: skipping review due to missing API Key or WandB Run ID.")
 
     if classification_metrics_sink:
         aggregate_rows = aggregate_sample_metrics(classification_metrics_sink)
@@ -388,9 +371,7 @@ if __name__ == "__main__":
         "btc-classification",
         "btc_classification",
     }:
-        print(
-            "Warning: no per-sample classification metrics were collected for aggregate logging."
-        )
+        print("Warning: no per-sample classification metrics were collected for aggregate logging.")
 
     print("Training loop finished. Waiting for all review uploads to complete...")
     for review_process in review_processes:

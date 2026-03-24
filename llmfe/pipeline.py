@@ -21,14 +21,10 @@ def _extract_function_names(specification: str) -> Tuple[str, str]:
     The function labeled with '@evaluate.run' is going to evaluate the generated code (like data-diven fitness evaluation).
     The function labeled with '@equation.evolve' is the function to be searched (like 'equation' structure).
     """
-    run_functions = list(
-        code_manipulation.yield_decorated(specification, "evaluate", "run")
-    )
+    run_functions = list(code_manipulation.yield_decorated(specification, "evaluate", "run"))
     if len(run_functions) != 1:
         raise ValueError("Expected 1 function decorated with `@evaluate.run`.")
-    evolve_functions = list(
-        code_manipulation.yield_decorated(specification, "equation", "evolve")
-    )
+    evolve_functions = list(code_manipulation.yield_decorated(specification, "equation", "evolve"))
 
     if len(evolve_functions) != 1:
         raise ValueError("Expected 1 function decorated with `@equation.evolve`.")
