@@ -9,3 +9,4 @@ ga_optimizer/data
 .env
 .env.*
 !.env.example
+.venv/
