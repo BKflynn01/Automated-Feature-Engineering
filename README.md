@@ -49,10 +49,10 @@ pre-commit run --all-files --hook-stage pre-push
 ```
 
 What this repository hook setup does:
-- Runs `ruff check ga_optimizer/` before each push.
-- Runs `black --check ga_optimizer/` before each push.
-- Runs `mypy ga_optimizer/` before each push.
-- Runs `bandit -c bandit.yaml -r ga_optimizer/` before each push (`B102`/`exec` check skipped).
+- Runs `ruff check tests ga_optimizer utils.py` before each push.
+- Runs `ruff format --check tests ga_optimizer utils.py` before each push.
+- Runs `mypy --config-file pyproject.toml` before each push.
+- Runs `bandit -c pyproject.toml -r ga_optimizer` and `bandit -c pyproject.toml utils.py` before each push (`B102`/`exec` check skipped).
 - Runs `pytest` (with coverage) before each push.
 
 ## 🔧 Usage

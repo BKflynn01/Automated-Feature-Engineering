@@ -1,47 +1,57 @@
 name: CI
+
 on: [push, pull_request]
 
 jobs:
   quality-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-        cache-dependency-path: |
-          requirements-ci.txt
-          requirements.txt
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements.txt
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements-ci.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
 
-    - name: Static Analysis (Lint & Format)
-      run: |
-        black --check ga_optimizer/
-        ruff check ga_optimizer/
+      - name: Ruff lint
+        run: |
+          ruff check tests ga_optimizer utils.py
 
-    - name: Type Check
-      run: mypy ga_optimizer/
+      - name: Ruff format check
+        run: |
+          ruff format --check tests ga_optimizer utils.py
 
-    - name: Security & Audit
-      run: |
-        bandit -c bandit.yaml -r ga_optimizer/
-        pip-audit --ignore-vuln CVE-2026-4539
+      - name: Type check
+        run: |
+          mypy --config-file pyproject.toml
 
-    - name: Run Tests & Coverage
-      run: |
-        PYTHONPATH=. pytest --cov=ga_optimizer --cov-report=term-missing --cov-report=html
+      - name: Security & audit
+        run: |
+          bandit -c pyproject.toml -r ga_optimizer
+          bandit -c pyproject.toml utils.py
+          pip-audit --ignore-vuln CVE-2026-4539
 
-    - name: Upload Coverage Report
-    # Upload even if tests fail 
-      if: always() 
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: htmlcov/
+      - name: Run tests & coverage
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest --cov-report=html
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/

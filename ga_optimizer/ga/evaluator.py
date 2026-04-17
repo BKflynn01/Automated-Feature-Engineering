@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional, cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, get_scorer, root_mean_squared_error
@@ -67,6 +68,16 @@ def _resolve_xgboost_device(requested_device: str) -> str:
     if normalized == "auto":
         return "cuda" if _gpu_available_for_xgboost() else "cpu"
     return normalized
+
+
+def _to_ndarray(value: object) -> npt.NDArray[Any]:
+    """Convert an array-like prediction result to a NumPy ndarray.
+
+    This normalizes outputs from third-party libraries whose type stubs may be
+    too broad for static type checking, while preserving the evaluator's
+    contract of returning a NumPy array.
+    """
+    return cast(npt.NDArray[Any], np.asarray(cast(Any, value)))
 
 
 @dataclass
@@ -175,70 +186,100 @@ class _XGBRFEvaluator:
         scorer = get_scorer(self.scoring)
         return float(scorer(model, X_test, y_test))
 
+    def _predict_with_model(
+        self,
+        model: xgb.XGBClassifier | xgb.XGBRegressor,
+        X_test: object,
+    ) -> npt.NDArray[Any]:
+        """Use the sklearn wrapper predict path."""
+        return _to_ndarray(model.predict(X_test))
+
+    def _predict_with_cupy(
+        self,
+        model: xgb.XGBClassifier | xgb.XGBRegressor,
+        X_test: object,
+    ) -> npt.NDArray[Any]:
+        """Use CuPy-backed input to keep CUDA inference on device when possible."""
+        import cupy as cp
+
+        if isinstance(X_test, (pd.DataFrame, pd.Series)):
+            pred_input = cp.asarray(X_test.to_numpy())
+        else:
+            pred_input = cp.asarray(X_test)
+        y_pred = model.predict(pred_input)
+        if isinstance(y_pred, cp.ndarray):
+            return _to_ndarray(cp.asnumpy(y_pred))
+        return _to_ndarray(y_pred)
+
+    def _build_prediction_matrix(self, X_test: object) -> xgb.DMatrix:
+        """Construct a DMatrix for booster-level prediction."""
+        feature_names: list[str] | None
+        matrix_data: npt.NDArray[Any]
+        if isinstance(X_test, pd.DataFrame):
+            feature_names = [str(col) for col in X_test.columns]
+            matrix_data = _to_ndarray(X_test.to_numpy())
+        elif isinstance(X_test, pd.Series):
+            feature_names = [str(X_test.name)] if X_test.name is not None else None
+            matrix_data = _to_ndarray(X_test.to_numpy().reshape(-1, 1))
+        else:
+            feature_names = None
+            matrix_data = _to_ndarray(X_test)
+        return xgb.DMatrix(matrix_data, feature_names=feature_names)
+
+    def _decode_class_predictions(
+        self,
+        model: xgb.XGBClassifier | xgb.XGBRegressor,
+        raw_pred: npt.NDArray[Any],
+    ) -> npt.NDArray[Any]:
+        """Map booster outputs to class labels when classifier classes are available."""
+        if raw_pred.ndim == 2:
+            class_indices = np.argmax(raw_pred, axis=1).astype(int)
+        else:
+            class_indices = (raw_pred >= 0.5).astype(int)
+
+        classes = getattr(model, "classes_", None)
+        if classes is None:
+            return _to_ndarray(class_indices)
+
+        classes_array = _to_ndarray(classes)
+        if classes_array.ndim != 1 or class_indices.size == 0:
+            return _to_ndarray(class_indices)
+        if int(np.max(class_indices)) >= classes_array.size:
+            return _to_ndarray(class_indices)
+        return _to_ndarray(classes_array[class_indices])
+
+    def _predict_with_booster(
+        self,
+        model: xgb.XGBClassifier | xgb.XGBRegressor,
+        X_test: object,
+    ) -> npt.NDArray[Any]:
+        """Use Booster.predict on an explicit DMatrix to avoid wrapper/device issues."""
+        matrix = self._build_prediction_matrix(X_test)
+        raw_pred = _to_ndarray(model.get_booster().predict(matrix))
+        if self.task == "regression":
+            return raw_pred
+        return self._decode_class_predictions(model, raw_pred)
+
     def _predict(
         self,
         model: xgb.XGBClassifier | xgb.XGBRegressor,
         X_test: pd.DataFrame,
-    ) -> np.ndarray:
-        """Run prediction with GPU-first behavior and defensive fallback paths.
+    ) -> npt.NDArray[Any]:
+        """Run prediction using the clearest viable path for the current device.
 
-        When ``self.device == "cuda"``, prediction proceeds in this order:
-        1) Try CuPy-backed input to keep inference on GPU.
-        2) If that fails, call ``Booster.predict`` on a constructed DMatrix.
-        3) If that also fails, fall back to ``model.predict``.
-
-        Exceptions are intentionally caught in fallback steps so evaluation keeps
-        running even when CUDA, CuPy, or wrapper-level prediction paths are
-        partially incompatible at runtime.
+        CUDA evaluation prefers GPU-backed inference first, then booster-level
+        prediction, and finally the sklearn wrapper path. CPU evaluation uses
+        the wrapper path directly.
         """
-        if self.device == "cuda":
-            # Best effort GPU inference path: CuPy input keeps data on-device and avoids
-            # XGBoost's CPU fallback warning for inplace_predict.
-            try:
-                import cupy as cp
+        if self.device != "cuda":
+            return self._predict_with_model(model, X_test)
 
-                if isinstance(X_test, (pd.DataFrame, pd.Series)):
-                    pred_input = cp.asarray(X_test.to_numpy())
-                else:
-                    pred_input = cp.asarray(X_test)
-                y_pred = model.predict(pred_input)
-                if isinstance(y_pred, cp.ndarray):
-                    return cp.asnumpy(y_pred)
-                return np.asarray(y_pred)
+        for strategy in (self._predict_with_cupy, self._predict_with_booster):
+            try:
+                return strategy(model, X_test)
             except Exception:
-                # If CuPy is unavailable, avoid sklearn-wrapper inplace_predict mismatch
-                # by calling Booster.predict on an explicit DMatrix instead.
-                try:
-                    if isinstance(X_test, pd.DataFrame):
-                        feature_names = [str(col) for col in X_test.columns]
-                        matrix_data = X_test.to_numpy()
-                    elif isinstance(X_test, pd.Series):
-                        feature_names = [str(X_test.name)] if X_test.name is not None else None  # type: ignore[assignment]
-                        matrix_data = X_test.to_numpy().reshape(-1, 1)
-                    else:
-                        feature_names = None  # type: ignore[assignment]
-                        matrix_data = np.asarray(X_test)
-                    matrix = xgb.DMatrix(matrix_data, feature_names=feature_names)
-                    raw_pred = np.asarray(model.get_booster().predict(matrix))
-                    if self.task == "regression":
-                        return raw_pred
-                    if raw_pred.ndim == 2:
-                        class_indices = np.argmax(raw_pred, axis=1).astype(int)
-                    else:
-                        class_indices = (raw_pred >= 0.5).astype(int)
-                    classes = getattr(model, "classes_", None)
-                    if classes is not None:
-                        classes_array = np.asarray(classes)
-                        if (
-                            classes_array.ndim == 1
-                            and class_indices.size > 0
-                            and int(np.max(class_indices)) < classes_array.size
-                        ):
-                            return classes_array[class_indices]
-                    return class_indices
-                except Exception:
-                    return model.predict(X_test)
-        return model.predict(X_test)
+                continue
+        return self._predict_with_model(model, X_test)
 
     def __call__(self, selected_features: List[str]) -> float:
         """Evaluate one feature subset and return mean CV score.

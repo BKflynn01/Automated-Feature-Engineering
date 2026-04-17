@@ -4,37 +4,44 @@ default_install_hook_types:
 repos:
   - repo: local
     hooks:
-      - id: ruff
-        name: ruff
-        entry: ruff check .
+      - id: ruff-check
+        name: ruff-check
+        entry: ruff check tests ga_optimizer utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
 
-      - id: black
-        name: black
-        entry: black --check .
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format --check tests ga_optimizer utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: mypy
         name: mypy
-        entry: mypy . --exclude="llmfe"
+        entry: mypy --config-file pyproject.toml
         language: system
         pass_filenames: false
         stages: [pre-push]
 
-      - id: bandit
-        name: bandit
-        entry: bandit -c bandit.yaml -r .
+      - id: bandit-dirs
+        name: bandit-dirs
+        entry: bandit -c pyproject.toml -r ga_optimizer
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: bandit-files
+        name: bandit-files
+        entry: bandit -c pyproject.toml utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: pytest
         name: pytest
-        entry: env PYTHONPATH=. pytest --cov-report=term-missing
+        entry: env PYTHONPATH=. pytest
         language: system
         pass_filenames: false
         stages: [pre-push]

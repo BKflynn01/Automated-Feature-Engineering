@@ -1,0 +1,9 @@
+-r requirements.in
+pytest
+pytest-cov
+pip-audit
+mypy
+ruff
+black
+bandit
+types-PyYAML>=6.0

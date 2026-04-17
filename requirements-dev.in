@@ -1,0 +1,6 @@
+-r requirements-ci.in
+ipython
+pip-tools
+pipdeptree
+pre-commit
+pytest-benchmark

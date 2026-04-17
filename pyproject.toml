@@ -1,25 +1,29 @@
-[tool.black]
-line-length = 100
-target-version = ['py311']
-
 [tool.ruff]
 line-length = 100
-target-version = 'py311'
+target-version = "py311"
+extend-exclude = [".venv", "wandb", "__pycache__"]
 
 [tool.ruff.lint]
-ignore = ['E203', 'E501', 'F841']
-
-[tool.isort]
-profile = 'black'
-line_length = 100
-known_first_party = ["ga_optimizer"]
+select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
-testpaths = ['tests']
-addopts = '-v --cov=ga_optimizer --cov-report=term-missing'
+minversion = "6.0"
+testpaths = ["tests"]
+addopts = "-v --cov=ga_optimizer --cov-report=term-missing"
 
 [tool.mypy]
-python_version = '3.11'
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+exclude = '(^|/)(\.venv|wandb|__pycache__)(/|$)'
+files = ["tests", "ga_optimizer", "utils.py"]
+
+[[tool.mypy.overrides]]
+module = ["llmfe", "llmfe.*"]
+ignore_errors = true
+follow_imports = "skip"
+[tool.bandit]
+exclude_dirs = [".venv", "wandb", "__pycache__", "tests"]
+skips = ["B101", "B105", "B110", "B112", "B113", "B311", "B404", "B603", "B607", "B615", "B102"]
