@@ -117,9 +117,7 @@ class _XGBRFEvaluator:
             return xgb.XGBRegressor(**common_params)
         raise ValueError(f"Unsupported task: {self.task}")
 
-    def _iter_splits(
-        self, X: pd.DataFrame, y: np.ndarray
-    ) -> list[tuple[np.ndarray, np.ndarray]]:
+    def _iter_splits(self, X: pd.DataFrame, y: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
         """Build train/test indices for time-series or standard K-fold CV."""
         if self.is_time_series:
             train_window, test_window, step_window = resolve_sliding_window_params(
@@ -334,19 +332,11 @@ def build_xgbrf_evaluator(
     scoring: str,
     cv_folds: int = DEFAULT_GA_CONFIG.evaluator.cv_folds,
     is_time_series: bool = False,
-    time_series_train_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_train_window,
-    time_series_test_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_test_window,
-    time_series_step_window: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.time_series_step_window,
+    time_series_train_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_train_window,
+    time_series_test_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_test_window,
+    time_series_step_window: Optional[int] = DEFAULT_GA_CONFIG.evaluator.time_series_step_window,
     time_series_gap: int = DEFAULT_GA_CONFIG.evaluator.time_series_gap,
-    max_time_series_splits: Optional[
-        int
-    ] = DEFAULT_GA_CONFIG.evaluator.max_time_series_splits,
+    max_time_series_splits: Optional[int] = DEFAULT_GA_CONFIG.evaluator.max_time_series_splits,
     n_estimators: Optional[int] = None,
     random_state: Optional[int] = None,
     config: Optional[GAOptimizerConfig] = None,
@@ -371,12 +361,8 @@ def build_xgbrf_evaluator(
         time_series_step_window=time_series_step_window,
         time_series_gap=time_series_gap,
         max_time_series_splits=max_time_series_splits,
-        n_estimators=(
-            n_estimators if n_estimators is not None else model_config.n_estimators
-        ),
-        random_state=(
-            random_state if random_state is not None else model_config.random_state
-        ),
+        n_estimators=(n_estimators if n_estimators is not None else model_config.n_estimators),
+        random_state=(random_state if random_state is not None else model_config.random_state),
         verbosity=model_config.verbosity,
         device=resolved_device,
     )

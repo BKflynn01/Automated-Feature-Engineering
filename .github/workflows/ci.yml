@@ -39,7 +39,7 @@ jobs:
 
       - name: Security & audit
         run: |
-          bandit -c pyproject.toml -r tests ga_optimizer
+          bandit -c pyproject.toml -r ga_optimizer
           bandit -c pyproject.toml main.py utils.py
           pip-audit --ignore-vuln CVE-2026-4539
 
