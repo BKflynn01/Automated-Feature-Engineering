@@ -7,8 +7,8 @@ from typing import Any
 
 from ga_optimizer.config import (
     DEFAULT_GA_CONFIG,
-    GAPreset,
     DatasetRunConfig,
+    GAPreset,
     get_ga_preset_values,
     load_dataset_run_config,
 )

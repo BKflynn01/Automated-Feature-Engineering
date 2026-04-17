@@ -1,5 +1,6 @@
 import pickle
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -357,3 +358,137 @@ def test_evaluator_auto_device_falls_back_to_cpu_when_gpu_unavailable(monkeypatc
     )
 
     assert evaluator.device == "cpu"
+
+
+def test_predict_uses_model_path_directly_on_cpu(monkeypatch):
+    X = pd.DataFrame({"x1": [0.1, 0.2], "x2": [1.0, 2.0]})
+    y = pd.Series([0, 1])
+    evaluator = build_xgbrf_evaluator(
+        X=X,
+        y=y,
+        task="classification",
+        scoring="accuracy",
+        cv_folds=2,
+        random_state=42,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("CUDA-only prediction strategy should not be called on CPU")
+
+    monkeypatch.setattr(evaluator, "_predict_with_cupy", fail_if_called)
+    monkeypatch.setattr(evaluator, "_predict_with_booster", fail_if_called)
+    monkeypatch.setattr(
+        evaluator,
+        "_predict_with_model",
+        lambda model, X_test: np.asarray([1, 0]),
+    )
+
+    y_pred = evaluator._predict(object(), X)
+
+    assert np.array_equal(y_pred, np.asarray([1, 0]))
+
+
+def test_predict_falls_back_from_cupy_to_booster_on_cuda(monkeypatch):
+    X = pd.DataFrame({"x1": [0.1, 0.2], "x2": [1.0, 2.0]})
+    y = pd.Series([0, 1])
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        xgbrf=XGBRFConfig(
+            n_estimators=10,
+            random_state=42,
+            verbosity=0,
+            device="cuda",
+        ),
+    )
+    evaluator = build_xgbrf_evaluator(
+        X=X,
+        y=y,
+        task="classification",
+        scoring="accuracy",
+        cv_folds=2,
+        config=config,
+    )
+    call_order: list[str] = []
+
+    def fail_cupy(model, X_test):
+        call_order.append("cupy")
+        raise RuntimeError("cupy unavailable")
+
+    def use_booster(model, X_test):
+        call_order.append("booster")
+        return np.asarray([0, 1])
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("model path should not be needed when booster succeeds")
+
+    monkeypatch.setattr(evaluator, "_predict_with_cupy", fail_cupy)
+    monkeypatch.setattr(evaluator, "_predict_with_booster", use_booster)
+    monkeypatch.setattr(evaluator, "_predict_with_model", fail_if_called)
+
+    y_pred = evaluator._predict(object(), X)
+
+    assert call_order == ["cupy", "booster"]
+    assert np.array_equal(y_pred, np.asarray([0, 1]))
+
+
+def test_predict_falls_back_to_model_when_cuda_strategies_fail(monkeypatch):
+    X = pd.DataFrame({"x1": [0.1, 0.2], "x2": [1.0, 2.0]})
+    y = pd.Series([0, 1])
+    config = replace(
+        DEFAULT_GA_CONFIG,
+        xgbrf=XGBRFConfig(
+            n_estimators=10,
+            random_state=42,
+            verbosity=0,
+            device="cuda",
+        ),
+    )
+    evaluator = build_xgbrf_evaluator(
+        X=X,
+        y=y,
+        task="classification",
+        scoring="accuracy",
+        cv_folds=2,
+        config=config,
+    )
+    call_order: list[str] = []
+
+    def fail_cupy(model, X_test):
+        call_order.append("cupy")
+        raise RuntimeError("cupy unavailable")
+
+    def fail_booster(model, X_test):
+        call_order.append("booster")
+        raise RuntimeError("booster predict failed")
+
+    def use_model(model, X_test):
+        call_order.append("model")
+        return np.asarray([1, 1])
+
+    monkeypatch.setattr(evaluator, "_predict_with_cupy", fail_cupy)
+    monkeypatch.setattr(evaluator, "_predict_with_booster", fail_booster)
+    monkeypatch.setattr(evaluator, "_predict_with_model", use_model)
+
+    y_pred = evaluator._predict(object(), X)
+
+    assert call_order == ["cupy", "booster", "model"]
+    assert np.array_equal(y_pred, np.asarray([1, 1]))
+
+
+def test_decode_class_predictions_maps_class_indices_back_to_labels():
+    X = pd.DataFrame({"x1": [0.1, 0.2], "x2": [1.0, 2.0]})
+    y = pd.Series([0, 1])
+    evaluator = build_xgbrf_evaluator(
+        X=X,
+        y=y,
+        task="classification",
+        scoring="accuracy",
+        cv_folds=2,
+        random_state=42,
+    )
+    model = SimpleNamespace(classes_=np.asarray(["no", "yes"]))
+    raw_pred = np.asarray([0.2, 0.8, 0.9])
+
+    decoded = evaluator._decode_class_predictions(model, raw_pred)
+
+    assert np.array_equal(decoded, np.asarray(["no", "yes", "yes"]))
