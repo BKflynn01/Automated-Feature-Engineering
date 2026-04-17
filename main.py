@@ -3,8 +3,6 @@ Perform Feature Engineering
 """
 
 import json
-
-# Imports
 import os
 import subprocess
 from argparse import ArgumentParser
