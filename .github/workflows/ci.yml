@@ -27,11 +27,11 @@ jobs:
 
       - name: Ruff lint
         run: |
-          ruff check tests main.py ga_optimizer utils.py
+          ruff check tests ga_optimizer utils.py
 
       - name: Ruff format check
         run: |
-          ruff format --check tests main.py ga_optimizer utils.py
+          ruff format --check tests ga_optimizer utils.py
 
       - name: Type check
         run: |
@@ -40,7 +40,7 @@ jobs:
       - name: Security & audit
         run: |
           bandit -c pyproject.toml -r ga_optimizer
-          bandit -c pyproject.toml main.py utils.py
+          bandit -c pyproject.toml utils.py
           pip-audit --ignore-vuln CVE-2026-4539
 
       - name: Run tests & coverage

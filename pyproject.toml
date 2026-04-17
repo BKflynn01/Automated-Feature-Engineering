@@ -18,7 +18,7 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 exclude = '(^|/)(\.venv|wandb|__pycache__)(/|$)'
-files = ["tests", "main.py", "ga_optimizer", "utils.py"]
+files = ["tests", "ga_optimizer", "utils.py"]
 
 [[tool.mypy.overrides]]
 module = ["llmfe", "llmfe.*"]

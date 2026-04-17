@@ -6,14 +6,14 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff-check
-        entry: ruff check tests main.py ga_optimizer utils.py
+        entry: ruff check tests ga_optimizer utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: ruff-format
         name: ruff-format
-        entry: ruff format --check tests main.py ga_optimizer utils.py
+        entry: ruff format --check tests ga_optimizer utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -34,7 +34,7 @@ repos:
 
       - id: bandit-files
         name: bandit-files
-        entry: bandit -c pyproject.toml main.py utils.py
+        entry: bandit -c pyproject.toml utils.py
         language: system
         pass_filenames: false
         stages: [pre-push]
