@@ -61,7 +61,7 @@ if args.quantization:
         # llm_int8_enable_fp32_cpu_offload=True
     )
 else:
-    quantization_config = None
+    quantization_config = None 
 
 
 # Load model
